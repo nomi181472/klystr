@@ -1,0 +1,39 @@
+﻿# SECURITY: opt-in only. This grants klystr authority to delegate Kubernetes access.
+# Change the subject below if the klystr server uses a different identity.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: klystr-rbac-manager
+  labels:
+    app.kubernetes.io/managed-by: klystr
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "clusterroles"]
+    verbs: ["get", "list", "create", "update", "escalate", "bind"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "clusterrolebindings"]
+    verbs: ["get", "list", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: klystr-rbac-manager
+  labels:
+    app.kubernetes.io/managed-by: klystr
+subjects:
+  - kind: ServiceAccount
+    name: klystr
+    namespace: klystr
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: klystr-rbac-manager
