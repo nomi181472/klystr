@@ -1,0 +1,169 @@
+﻿services:
+  shell:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: shell-runner
+      args:
+        NEXT_PUBLIC_TOPOLOGY_REMOTE_ENTRY: "${KLYSTR_TOPOLOGY_REMOTE_ENTRY:-http://localhost:3001/_next/static/chunks/remoteEntry.js}"
+        NEXT_PUBLIC_RBAC_REMOTE_ENTRY: "${KLYSTR_RBAC_REMOTE_ENTRY:-http://localhost:3002/_next/static/chunks/remoteEntry.js}"
+        NEXT_PUBLIC_IMAGES_REMOTE_ENTRY: "${KLYSTR_IMAGES_REMOTE_ENTRY:-http://localhost:3003/_next/static/chunks/remoteEntry.js}"
+        NEXT_PUBLIC_MANIFESTS_REMOTE_ENTRY: "${KLYSTR_MANIFESTS_REMOTE_ENTRY:-http://localhost:3004/_next/static/chunks/remoteEntry.js}"
+        NEXT_PUBLIC_SECURITY_REMOTE_ENTRY: "${KLYSTR_SECURITY_REMOTE_ENTRY:-http://localhost:3005/_next/static/chunks/remoteEntry.js}"
+    image: botonetics/klystr-shell:latest
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env.local
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${KLYSTR_PORT:-3000}:3000"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  topology:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: remote-runner
+      args:
+        REMOTE_NAME: topology
+    image: botonetics/klystr-topology:latest
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${KLYSTR_TOPOLOGY_PORT:-3001}:3001"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  rbac:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: remote-runner
+      args: { REMOTE_NAME: rbac }
+    image: botonetics/klystr-rbac:latest
+    environment: { NODE_ENV: production, PORT: 3001, HOSTNAME: 0.0.0.0 }
+    ports: ["${KLYSTR_RBAC_PORT:-3002}:3001"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=64m"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  images:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: remote-runner
+      args: { REMOTE_NAME: images }
+    image: botonetics/klystr-images:latest
+    environment: { NODE_ENV: production, PORT: 3001, HOSTNAME: 0.0.0.0 }
+    ports: ["${KLYSTR_IMAGES_PORT:-3003}:3001"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=64m"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  manifests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: remote-runner
+      args: { REMOTE_NAME: manifests }
+    image: botonetics/klystr-manifests:latest
+    environment: { NODE_ENV: production, PORT: 3001, HOSTNAME: 0.0.0.0 }
+    ports: ["${KLYSTR_MANIFESTS_PORT:-3004}:3001"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=64m"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  security:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: remote-runner
+      args: { REMOTE_NAME: security }
+    image: botonetics/klystr-security:latest
+    environment: { NODE_ENV: production, PORT: 3001, HOSTNAME: 0.0.0.0 }
+    ports: ["${KLYSTR_SECURITY_PORT:-3005}:3001"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=64m"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3

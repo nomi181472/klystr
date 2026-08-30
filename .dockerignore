@@ -1,0 +1,9 @@
+node_modules
+**/.next
+**/next.config.compiled.js
+.git
+artifacts
+test-results
+*.log
+.env*
+!.env.example
