@@ -1,4 +1,4 @@
-﻿import type { FederatedPluginModule, PluginManifest } from '@/lib/plugins/contracts';
+import type { FederatedPluginModule, PluginManifest } from '@/lib/plugins/contracts';
 import { SHELL_SDK_VERSION } from '@/lib/shell-sdk/contracts';
 
 interface FederationContainer {
@@ -79,7 +79,7 @@ export async function loadFederatedPlugin(plugin: PluginManifest): Promise<Feder
   }
 
   const factory = await container.get(plugin.exposedModule);
-  const module = factory();
+  const pluginModule = factory();
   window.dispatchEvent(new CustomEvent('klystr:plugin-load', { detail: { pluginId: plugin.id, status: 'ready' } }));
-  return module;
+  return pluginModule;
 }

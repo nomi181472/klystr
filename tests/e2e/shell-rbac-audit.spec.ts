@@ -126,10 +126,6 @@ test.describe('Shell + RBAC Integration Audit', () => {
     await page.goto('/rbac');
     await page.waitForLoadState('networkidle');
 
-    // Check if the remote entry file is loaded
-    const remoteEntryRequests = page.context().pages()[0]
-      ? await Promise.resolve('checked')
-      : null;
 
     // Take screenshot of RBAC page
     await page.screenshot({

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Isomorphic logger service for SSR and CSR
  * Controlled by LOGGER environment variable
  * Set LOGGER=true to enable logging
@@ -18,7 +18,7 @@ const getLoggerEnabled = (): boolean => {
     // Client-side: check window for injected logger flag or localStorage
     // Default true if not explicitly disabled
     try {
-      const enabled = (window as any).__KLYSTR_LOGGER_ENABLED__;
+      const enabled = (window as Window & { __KLYSTR_LOGGER_ENABLED__?: boolean }).__KLYSTR_LOGGER_ENABLED__;
       if (enabled === false) return false;
       const stored = localStorage?.getItem('klystr:logger');
       if (stored === 'false') return false;
@@ -53,7 +53,7 @@ class Logger {
     return `[${ns}] ${levelUpper} ${timestamp ? `(${timestamp}) ` : ''}${message}`;
   }
 
-  info(message: string, data?: any, context?: LogContext): void {
+  info(message: string, data?: unknown, context?: LogContext): void {
     if (!this.enabled) return;
     const formatted = this.formatMessage('info', message, context);
     if (isServer) {
@@ -63,7 +63,7 @@ class Logger {
     }
   }
 
-  warn(message: string, data?: any, context?: LogContext): void {
+  warn(message: string, data?: unknown, context?: LogContext): void {
     if (!this.enabled) return;
     const formatted = this.formatMessage('warn', message, context);
     if (isServer) {
@@ -73,7 +73,7 @@ class Logger {
     }
   }
 
-  error(message: string, data?: any, context?: LogContext): void {
+  error(message: string, data?: unknown, context?: LogContext): void {
     if (!this.enabled) return;
     const formatted = this.formatMessage('error', message, context);
     if (isServer) {
@@ -83,7 +83,7 @@ class Logger {
     }
   }
 
-  debug(message: string, data?: any, context?: LogContext): void {
+  debug(message: string, data?: unknown, context?: LogContext): void {
     if (!this.enabled) return;
     const formatted = this.formatMessage('debug', message, context);
     if (isServer) {

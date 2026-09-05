@@ -67,7 +67,6 @@ test.describe('RBAC Plugin Detailed Tests', () => {
 
     // Get initial table content
     const table = page.locator('table');
-    const initialContent = await table.innerHTML();
 
     // Click refresh button
     const refreshButton = page.locator('button').filter({ hasText: 'Refresh' });
