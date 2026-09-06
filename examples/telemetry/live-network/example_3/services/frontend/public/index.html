@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klystr Bookstore - Microservice Telemetry Testbed</title>
+  <style>
+    :root {
+      --bg-dark: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --accent: #10b981;
+      --accent-purple: #8b5cf6;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Navbar */
+    header {
+      background-color: rgba(17, 24, 39, 0.95);
+      border-bottom: 1px solid var(--card-border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--primary), var(--accent-purple));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.2rem;
+      color: white;
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-badge {
+      font-size: 0.7rem;
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      margin-left: 0.5rem;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .health-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+    }
+
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      background-color: #10b981;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.15); }
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background-color: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background-color: #1f2937;
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-secondary:hover {
+      background-color: #374151;
+    }
+
+    .btn-accent {
+      background-color: var(--accent);
+      color: white;
+    }
+
+    .btn-accent:hover {
+      background-color: #059669;
+    }
+
+    .btn-danger {
+      background-color: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .btn-danger:hover {
+      background-color: rgba(239, 68, 68, 0.4);
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* Top Stats Bar */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+
+    .stat-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary);
+    }
+
+    .stat-card.accent::after { background: var(--accent); }
+    .stat-card.purple::after { background: var(--accent-purple); }
+    .stat-card.warning::after { background: var(--warning); }
+
+    .stat-title {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .stat-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Filters & Controls Toolbar */
+    .toolbar {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .search-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex: 1;
+      min-width: 260px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 0.55rem 0.85rem;
+      background-color: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-size: 0.875rem;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    select {
+      padding: 0.55rem 0.85rem;
+      background-color: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    /* Telemetry Edge Test Banner */
+    .telemetry-banner {
+      background: linear-gradient(90deg, rgba(30, 58, 138, 0.3), rgba(88, 28, 135, 0.3));
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: var(--radius);
+      padding: 0.85rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      font-size: 0.875rem;
+    }
+
+    .telemetry-meta {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .telemetry-badge {
+      background: #1e293b;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #93c5fd;
+      border: 1px solid #334155;
+    }
+
+    /* Books Grid */
+    .books-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .book-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s, border-color 0.2s;
+      position: relative;
+    }
+
+    .book-card:hover {
+      transform: translateY(-2px);
+      border-color: #3b82f6;
+    }
+
+    .book-genre {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.5rem;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 0.5rem;
+    }
+
+    .book-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 0.35rem;
+      line-height: 1.3;
+    }
+
+    .book-author {
+      font-size: 0.825rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .book-desc {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+
+    .book-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid #1e293b;
+      padding-top: 0.75rem;
+      margin-top: auto;
+    }
+
+    .book-price {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #34d399;
+    }
+
+    .book-rating {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.85rem;
+      color: #fbbf24;
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 0;
+      border-top: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .pagination-info {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(4px);
+      padding: 1rem;
+    }
+
+    .modal-backdrop.active {
+      display: flex;
+    }
+
+    .modal {
+      background-color: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 500px;
+      padding: 1.75rem;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+
+    .modal-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+
+    .modal-close:hover {
+      color: var(--text-main);
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
+      padding: 0.6rem 0.8rem;
+      background-color: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-size: 0.875rem;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+
+    .token-display {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      padding: 0.75rem;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #38bdf8;
+      word-break: break-all;
+      margin-top: 0.5rem;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--card-border);
+      background-color: #0c101c;
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: auto;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 1.25rem;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .footer-links a:hover {
+      color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">K</div>
+      <div>
+        <span class="brand-title">Klystr Bookstore</span>
+        <span class="brand-badge">Telemetry Example 3</span>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <div class="health-pill" id="healthPill" title="Microservice Health Status">
+        <span class="health-dot" id="healthDot"></span>
+        <span id="healthText">Connecting...</span>
+      </div>
+
+      <div id="authSection">
+        <button class="btn btn-secondary" id="openLoginBtn" onclick="openLoginModal()">Sign In</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main>
+    <!-- Live Telemetry / Database Stats Bar -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-title">Catalog Inventory</div>
+        <div class="stat-value" id="statTotalBooks">100</div>
+        <div class="stat-desc">PostgreSQL 16 Seeded Books</div>
+      </div>
+      <div class="stat-card accent">
+        <div class="stat-title">Active Redis Sessions</div>
+        <div class="stat-value" id="statActiveSessions">0</div>
+        <div class="stat-desc">Redis 7 In-Memory Tokens</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-title">Distinct Authors</div>
+        <div class="stat-value" id="statTotalAuthors">85+</div>
+        <div class="stat-desc">Across 6 Specialized Genres</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="stat-title">Last Fetch Throughput</div>
+        <div class="stat-value" id="statPayloadSize">0.0 KB</div>
+        <div class="stat-desc" id="statRoundTrip">Latency: 0 ms</div>
+      </div>
+    </section>
+
+    <!-- Telemetry Live Network Simulation Banner -->
+    <section class="telemetry-banner">
+      <div>
+        <strong>Live Network Telemetry Experimentation:</strong>
+        <span style="color: var(--text-muted); margin-left: 0.5rem;">
+          Toggle pagination limits or trigger high-throughput streams to observe edge color changes in Klystr Heatmap.
+        </span>
+      </div>
+      <div class="telemetry-meta">
+        <button class="btn btn-secondary" onclick="simulateStreamPayload(250)" title="Stream 250KB payload to trigger High Throughput edge in Klystr Network Graph">
+          Stream 250KB
+        </button>
+        <button class="btn btn-primary" onclick="simulateStreamPayload(1024)" title="Stream 1MB payload to trigger Max Threshold in Klystr Network Graph">
+          Stream 1MB
+        </button>
+      </div>
+    </section>
+
+    <!-- Controls & Filters Toolbar -->
+    <section class="toolbar">
+      <div class="search-group">
+        <input 
+          type="text" 
+          id="searchInput" 
+          class="search-input" 
+          placeholder="Search by title, author, or keyword (e.g. Distributed, Clean, Dune)..." 
+          oninput="handleSearch(this.value)"
+        />
+      </div>
+
+      <div class="filter-group">
+        <select id="genreSelect" onchange="handleGenreChange(this.value)">
+          <option value="">All Genres</option>
+          <option value="Computer Science">Computer Science</option>
+          <option value="Science Fiction">Science Fiction</option>
+          <option value="Classic Literature">Classic Literature</option>
+          <option value="Mystery & Thriller">Mystery & Thriller</option>
+          <option value="Philosophy">Philosophy</option>
+          <option value="Business & Economics">Business & Economics</option>
+        </select>
+
+        <select id="sortSelect" onchange="handleSortChange(this.value)">
+          <option value="rating-desc">Highest Rated</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+          <option value="title-asc">Title: A-Z</option>
+          <option value="publication_year-desc">Newest First</option>
+        </select>
+
+        <select id="limitSelect" onchange="handleLimitChange(this.value)">
+          <option value="12">12 per page</option>
+          <option value="24" selected>24 per page</option>
+          <option value="50">50 per page</option>
+          <option value="100">100 per page (All)</option>
+        </select>
+
+        <button class="btn btn-accent" id="addBookBtn" onclick="openAddBookModal()">+ Add Book</button>
+      </div>
+    </section>
+
+    <!-- Books Grid -->
+    <section class="books-grid" id="booksGrid">
+      <!-- Dynamically filled with book cards -->
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-muted);">
+        Loading 100 books from PostgreSQL database...
+      </div>
+    </section>
+
+    <!-- Pagination Controls -->
+    <section class="pagination">
+      <div class="pagination-info" id="paginationInfo">
+        Showing 0 - 0 of 0 books
+      </div>
+      <div class="pagination-controls">
+        <button class="btn btn-secondary" id="prevPageBtn" onclick="changePage(-1)" disabled>Previous</button>
+        <span id="currentPageBadge" style="font-size: 0.875rem; font-weight: 600; padding: 0 0.5rem;">Page 1</span>
+        <button class="btn btn-secondary" id="nextPageBtn" onclick="changePage(1)">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Login / Register Modal -->
+  <div class="modal-backdrop" id="loginModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="authModalTitle">Sign In to Klystr Bookstore</div>
+        <button class="modal-close" onclick="closeLoginModal()">&times;</button>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+        <button class="btn btn-primary" id="tabLoginBtn" style="flex: 1;" onclick="switchAuthTab('login')">Sign In</button>
+        <button class="btn btn-secondary" id="tabRegisterBtn" style="flex: 1;" onclick="switchAuthTab('register')">Register New</button>
+      </div>
+
+      <form id="authForm" onsubmit="handleAuthSubmit(event)">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" required placeholder="admin or demo_reader" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" required placeholder="admin123 or reader123" />
+        </div>
+
+        <div class="form-group" id="regEmailGroup" style="display: none;">
+          <label for="email">Email</label>
+          <input type="email" id="email" placeholder="reader@example.com" />
+        </div>
+
+        <div class="form-group" id="regNameGroup" style="display: none;">
+          <label for="fullName">Full Name</label>
+          <input type="text" id="fullName" placeholder="John Doe" />
+        </div>
+
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Pre-seeded demo credentials: <code>admin / admin123</code> or <code>demo_reader / reader123</code>.
+          Sessions are managed in Redis with TTL.
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeLoginModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="authSubmitBtn">Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Book Modal -->
+  <div class="modal-backdrop" id="addBookModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Add New Book to Catalog</div>
+        <button class="modal-close" onclick="closeAddBookModal()">&times;</button>
+      </div>
+
+      <form id="addBookForm" onsubmit="handleAddBookSubmit(event)">
+        <div class="form-group">
+          <label for="newTitle">Book Title *</label>
+          <input type="text" id="newTitle" required placeholder="e.g. Site Reliability Engineering" />
+        </div>
+
+        <div class="form-group">
+          <label for="newAuthor">Author *</label>
+          <input type="text" id="newAuthor" required placeholder="e.g. Niall Richard Murphy" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label for="newGenre">Genre</label>
+            <select id="newGenre">
+              <option value="Computer Science">Computer Science</option>
+              <option value="Science Fiction">Science Fiction</option>
+              <option value="Classic Literature">Classic Literature</option>
+              <option value="Mystery & Thriller">Mystery & Thriller</option>
+              <option value="Philosophy">Philosophy</option>
+              <option value="Business & Economics">Business & Economics</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="newPrice">Price ($)</label>
+            <input type="number" step="0.01" id="newPrice" value="29.99" required />
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label for="newYear">Publication Year</label>
+            <input type="number" id="newYear" value="2024" required />
+          </div>
+          <div class="form-group">
+            <label for="newRating">Rating (0 - 5)</label>
+            <input type="number" step="0.1" min="0" max="5" id="newRating" value="4.8" required />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="newDesc">Description</label>
+          <textarea id="newDesc" rows="3" placeholder="Summary or overview of the book..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeAddBookModal()">Cancel</button>
+          <button type="submit" class="btn btn-accent">Save Book to PostgreSQL</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Book Detail Modal -->
+  <div class="modal-backdrop" id="bookDetailModal">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-header">
+        <div class="modal-title" id="detailTitle">Book Details</div>
+        <button class="modal-close" onclick="closeBookDetailModal()">&times;</button>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span class="book-genre" id="detailGenre">Genre</span>
+        <h2 style="font-size: 1.3rem; margin: 0.5rem 0;" id="detailHeading">Title</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;" id="detailAuthor">by Author (Year)</p>
+      </div>
+
+      <p style="color: #cbd5e1; line-height: 1.6; margin-bottom: 1.25rem; font-size: 0.9rem;" id="detailDesc">
+        Full description will appear here.
+      </p>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; background: #0f172a; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem;">
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">PRICE</div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: #34d399;" id="detailPrice">$0.00</div>
+        </div>
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">RATING</div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: #fbbf24;" id="detailRating">★ 0.0</div>
+        </div>
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">REDIS VIEWS</div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: #60a5fa;" id="detailViews">0</div>
+        </div>
+      </div>
+
+      <div class="modal-footer" id="detailFooter">
+        <button class="btn btn-secondary" onclick="closeBookDetailModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div>
+      <strong>Klystr Live Network Telemetry Benchmark</strong> &bull; Microservice Architecture Testbed
+    </div>
+    <div class="footer-links">
+      <a href="/api/books?limit=100" target="_blank">Raw 100 Books JSON</a>
+      <a href="/api/books/stats" target="_blank">DB & Redis Stats</a>
+      <a href="/healthz" target="_blank">Health Check</a>
+    </div>
+  </footer>
+
+  <!-- Application Logic -->
+  <script>
+    // State
+    const state = {
+      page: 1,
+      limit: 24,
+      genre: '',
+      query: '',
+      sortBy: 'rating',
+      sortOrder: 'desc',
+      totalPages: 1,
+      totalBooks: 100,
+      currentUser: null,
+      sessionToken: localStorage.getItem('klystr_session_token') || null,
+      authTab: 'login',
+      searchDebounceTimer: null
+    };
+
+    // API Base URL - uses relative URL proxying via Nginx to the API service
+    const API_BASE = '/api';
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      checkHealth();
+      setInterval(checkHealth, 10000);
+      validateSavedSession();
+      loadStats();
+      loadBooks();
+    });
+
+    // Health Check
+    async function checkHealth() {
+      const dot = document.getElementById('healthDot');
+      const text = document.getElementById('healthText');
+      try {
+        const res = await fetch('/healthz');
+        if (res.ok) {
+          const data = await res.json();
+          dot.style.backgroundColor = '#10b981';
+          text.textContent = `Online (${data.database.total_books} Books)`;
+        } else {
+          dot.style.backgroundColor = '#f59e0b';
+          text.textContent = 'Degraded';
+        }
+      } catch (err) {
+        dot.style.backgroundColor = '#ef4444';
+        text.textContent = 'Offline';
+      }
+    }
+
+    // Validate Stored Session with Redis
+    async function validateSavedSession() {
+      if (!state.sessionToken) {
+        renderAuthStatus();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          state.currentUser = data.user;
+        } else {
+          // Token expired or revoked in Redis
+          state.currentUser = null;
+          state.sessionToken = null;
+          localStorage.removeItem('klystr_session_token');
+        }
+      } catch (e) {
+        console.warn('Session verification failed:', e);
+      }
+      renderAuthStatus();
+    }
+
+    // Render Auth UI in Header
+    function renderAuthStatus() {
+      const authDiv = document.getElementById('authSection');
+      if (state.currentUser) {
+        authDiv.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="text-align: right;">
+              <div style="font-size: 0.85rem; font-weight: 600; color: #fff;">${state.currentUser.username}</div>
+              <div style="font-size: 0.7rem; color: #34d399;">Active Redis Session</div>
+            </div>
+            <button class="btn btn-secondary" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="handleLogout()">Sign Out</button>
+          </div>
+        `;
+      } else {
+        authDiv.innerHTML = `
+          <button class="btn btn-secondary" onclick="openLoginModal()">Sign In</button>
+        `;
+      }
+    }
+
+    // Load Overview Stats
+    async function loadStats() {
+      try {
+        const res = await fetch(`${API_BASE}/books/stats`);
+        if (res.ok) {
+          const stats = await res.json();
+          document.getElementById('statTotalBooks').textContent = stats.total_books || '100';
+          document.getElementById('statTotalAuthors').textContent = stats.total_authors || '85+';
+          document.getElementById('statActiveSessions').textContent = stats.telemetry ? stats.telemetry.active_redis_sessions : '1';
+        }
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    }
+
+    // Fetch and Render Books
+    async function loadBooks() {
+      const grid = document.getElementById('booksGrid');
+      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 2rem; color: var(--text-muted);">Fetching books from API & PostgreSQL...</div>';
+
+      const startTime = performance.now();
+      const params = new URLSearchParams({
+        page: state.page,
+        limit: state.limit,
+        genre: state.genre,
+        q: state.query,
+        sort_by: state.sortBy,
+        sort_order: state.sortOrder
+      });
+
+      try {
+        const res = await fetch(`${API_BASE}/books?${params.toString()}`);
+        const roundTripMs = Math.round(performance.now() - startTime);
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const textData = await res.text();
+        const payloadSizeKb = (new Blob([textData]).size / 1024).toFixed(1);
+        const data = JSON.parse(textData);
+
+        // Update telemetry stats bar
+        document.getElementById('statPayloadSize').textContent = `${payloadSizeKb} KB`;
+        document.getElementById('statRoundTrip').textContent = `Latency: ${roundTripMs} ms`;
+
+        state.totalPages = data.pages;
+        state.totalBooks = data.total;
+
+        renderBooks(data.items);
+        updatePagination(data);
+      } catch (err) {
+        grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 2rem; color: #f87171;">Failed to load books: ${err.message}</div>`;
+      }
+    }
+
+    // Render Book Cards
+    function renderBooks(books) {
+      const grid = document.getElementById('booksGrid');
+      if (!books || books.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-muted);">No books match your current filters.</div>';
+        return;
+      }
+
+      grid.innerHTML = books.map(book => `
+        <div class="book-card" onclick="viewBookDetails(${book.id})">
+          <div>
+            <span class="book-genre">${escapeHtml(book.genre)}</span>
+            <div class="book-title">${escapeHtml(book.title)}</div>
+            <div class="book-author">by ${escapeHtml(book.author)} (${book.publication_year})</div>
+            <div class="book-desc">${escapeHtml(book.description || 'No description available.')}</div>
+          </div>
+          <div class="book-meta">
+            <span class="book-price">$${book.price.toFixed(2)}</span>
+            <span class="book-rating">&#9733; ${book.rating.toFixed(1)}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Update Pagination UI
+    function updatePagination(data) {
+      const start = data.total === 0 ? 0 : (data.page - 1) * data.limit + 1;
+      const end = Math.min(data.page * data.limit, data.total);
+      document.getElementById('paginationInfo').textContent = `Showing ${start} - ${end} of ${data.total} books`;
+      document.getElementById('currentPageBadge').textContent = `Page ${data.page} of ${data.pages}`;
+      document.getElementById('prevPageBtn').disabled = data.page <= 1;
+      document.getElementById('nextPageBtn').disabled = data.page >= data.pages;
+    }
+
+    // Change Page
+    function changePage(delta) {
+      const next = state.page + delta;
+      if (next >= 1 && next <= state.totalPages) {
+        state.page = next;
+        loadBooks();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    // Handle Search with Debounce
+    function handleSearch(val) {
+      clearTimeout(state.searchDebounceTimer);
+      state.searchDebounceTimer = setTimeout(() => {
+        state.query = val.trim();
+        state.page = 1;
+        loadBooks();
+      }, 300);
+    }
+
+    // Filters
+    function handleGenreChange(val) {
+      state.genre = val;
+      state.page = 1;
+      loadBooks();
+    }
+
+    function handleSortChange(val) {
+      const parts = val.split('-');
+      state.sortBy = parts[0];
+      state.sortOrder = parts[1];
+      state.page = 1;
+      loadBooks();
+    }
+
+    function handleLimitChange(val) {
+      state.limit = parseInt(val, 10);
+      state.page = 1;
+      loadBooks();
+    }
+
+    // Simulate Streaming Large Payload (For Heatmap Edge Testing)
+    async function simulateStreamPayload(sizeKb) {
+      const startTime = performance.now();
+      try {
+        const res = await fetch(`${API_BASE}/telemetry/payload?size_kb=${sizeKb}`);
+        const roundTripMs = Math.round(performance.now() - startTime);
+        const text = await res.text();
+        const actualKb = (new Blob([text]).size / 1024).toFixed(1);
+
+        document.getElementById('statPayloadSize').textContent = `${actualKb} KB`;
+        document.getElementById('statRoundTrip').textContent = `Stream: ${roundTripMs} ms`;
+
+        alert(`Streamed ${actualKb} KB payload over network in ${roundTripMs}ms!\nObserve Klystr live networking heatmap edge turning towards high-throughput color.`);
+      } catch (err) {
+        alert(`Stream test error: ${err.message}`);
+      }
+    }
+
+    // View Single Book Details (increments view count in Redis)
+    async function viewBookDetails(bookId) {
+      try {
+        const res = await fetch(`${API_BASE}/books/${bookId}`);
+        if (!res.ok) throw new Error('Could not fetch book details');
+        const book = await res.json();
+
+        document.getElementById('detailTitle').textContent = `Book #${book.id}`;
+        document.getElementById('detailGenre').textContent = book.genre;
+        document.getElementById('detailHeading').textContent = book.title;
+        document.getElementById('detailAuthor').textContent = `by ${book.author} (${book.publication_year}) | ISBN: ${book.isbn}`;
+        document.getElementById('detailDesc').textContent = book.description || 'No detailed description available.';
+        document.getElementById('detailPrice').textContent = `$${book.price.toFixed(2)}`;
+        document.getElementById('detailRating').textContent = `★ ${book.rating.toFixed(1)}`;
+        document.getElementById('detailViews').textContent = book.view_count || 1;
+
+        const footer = document.getElementById('detailFooter');
+        if (state.currentUser) {
+          footer.innerHTML = `
+            <button class="btn btn-danger" onclick="deleteBook(${book.id})">Delete Book</button>
+            <button class="btn btn-secondary" onclick="closeBookDetailModal()">Close</button>
+          `;
+        } else {
+          footer.innerHTML = `
+            <button class="btn btn-secondary" onclick="closeBookDetailModal()">Close</button>
+          `;
+        }
+
+        document.getElementById('bookDetailModal').classList.add('active');
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function closeBookDetailModal() {
+      document.getElementById('bookDetailModal').classList.remove('active');
+    }
+
+    // Delete Book (Requires Auth)
+    async function deleteBook(bookId) {
+      if (!confirm(`Are you sure you want to delete book #${bookId}?`)) return;
+      try {
+        const res = await fetch(`${API_BASE}/books/${bookId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+        });
+        if (!res.ok) throw new Error('Delete failed');
+        closeBookDetailModal();
+        loadBooks();
+        loadStats();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    // Auth Modals
+    function openLoginModal() {
+      document.getElementById('loginModal').classList.add('active');
+    }
+
+    function closeLoginModal() {
+      document.getElementById('loginModal').classList.remove('active');
+    }
+
+    function switchAuthTab(tab) {
+      state.authTab = tab;
+      const loginBtn = document.getElementById('tabLoginBtn');
+      const regBtn = document.getElementById('tabRegisterBtn');
+      const emailGroup = document.getElementById('regEmailGroup');
+      const nameGroup = document.getElementById('regNameGroup');
+      const submitBtn = document.getElementById('authSubmitBtn');
+      const title = document.getElementById('authModalTitle');
+
+      if (tab === 'login') {
+        loginBtn.className = 'btn btn-primary';
+        regBtn.className = 'btn btn-secondary';
+        emailGroup.style.display = 'none';
+        nameGroup.style.display = 'none';
+        submitBtn.textContent = 'Sign In';
+        title.textContent = 'Sign In to Klystr Bookstore';
+      } else {
+        loginBtn.className = 'btn btn-secondary';
+        regBtn.className = 'btn btn-primary';
+        emailGroup.style.display = 'flex';
+        nameGroup.style.display = 'flex';
+        submitBtn.textContent = 'Register Account';
+        title.textContent = 'Create New Reader Account';
+      }
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+
+      const endpoint = state.authTab === 'login' ? `${API_BASE}/auth/login` : `${API_BASE}/auth/register`;
+      const bodyData = { username, password };
+
+      if (state.authTab === 'register') {
+        bodyData.email = document.getElementById('email').value.trim();
+        bodyData.full_name = document.getElementById('fullName').value.trim();
+      }
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bodyData)
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Authentication error');
+          return;
+        }
+
+        // Store session token in localStorage and memory
+        state.sessionToken = data.token;
+        state.currentUser = data.user;
+        localStorage.setItem('klystr_session_token', data.token);
+
+        closeLoginModal();
+        renderAuthStatus();
+        loadStats();
+        alert(`Welcome back, ${data.user.username}! Session token active in Redis.`);
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    }
+
+    async function handleLogout() {
+      if (state.sessionToken) {
+        try {
+          await fetch(`${API_BASE}/auth/logout`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${state.sessionToken}` }
+          });
+        } catch (e) {
+          console.warn('Logout API error:', e);
+        }
+      }
+      state.sessionToken = null;
+      state.currentUser = null;
+      localStorage.removeItem('klystr_session_token');
+      renderAuthStatus();
+      loadStats();
+    }
+
+    // Add Book Modal
+    function openAddBookModal() {
+      if (!state.currentUser) {
+        alert('Authentication required: Please sign in first (e.g. admin / admin123) to create new books.');
+        openLoginModal();
+        return;
+      }
+      document.getElementById('addBookModal').classList.add('active');
+    }
+
+    function closeAddBookModal() {
+      document.getElementById('addBookModal').classList.remove('active');
+    }
+
+    async function handleAddBookSubmit(e) {
+      e.preventDefault();
+      const payload = {
+        title: document.getElementById('newTitle').value.trim(),
+        author: document.getElementById('newAuthor').value.trim(),
+        genre: document.getElementById('newGenre').value,
+        price: parseFloat(document.getElementById('newPrice').value),
+        publication_year: parseInt(document.getElementById('newYear').value, 10),
+        rating: parseFloat(document.getElementById('newRating').value),
+        description: document.getElementById('newDesc').value.trim()
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/books`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.sessionToken}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Failed to create book');
+          return;
+        }
+
+        closeAddBookModal();
+        loadBooks();
+        loadStats();
+        alert(`Book '${data.book.title}' created and stored in PostgreSQL!`);
+      } catch (err) {
+        alert(`Error creating book: ${err.message}`);
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>

@@ -7,3 +7,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Hubble Enable Rules
+- You will never run commands to enable Hubble.
+- You will always use REST APIs for Hubble enable.
+- If there is no REST API, then guide the user how they can enable it manually.

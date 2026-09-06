@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: klystr-test
+  labels:
+    telemetry: klystr-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: klystr-test
+  labels:
+    app: backend
+    telemetry: klystr-test
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        telemetry: klystr-test
+    spec:
+      containers:
+      - name: http-backend
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - >
+          mkdir -p /www &&
+          printf "Hello from Klystr network test\n\nPod: %s\nHostname: %s\n" "$POD_NAME" "$HOSTNAME" > /www/index.html &&
+          exec httpd -f -p 8080 -h /www
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: klystr-test
+  labels:
+    app: backend
+    telemetry: klystr-test
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+  namespace: klystr-test
+  labels:
+    app: traffic-generator
+    telemetry: klystr-test
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+        telemetry: klystr-test
+    spec:
+      containers:
+      - name: generator
+        image: curlimages/curl:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - >
+          while true; do
+            curl -s http://backend-service > /dev/null 2>&1;
+            sleep 0.1;
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-debug
+  namespace: klystr-test
+  labels:
+    app: traffic-debug
+    telemetry: klystr-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: traffic-debug
+  template:
+    metadata:
+      labels:
+        app: traffic-debug
+        telemetry: klystr-test
+    spec:
+      containers:
+      - name: debug-generator
+        image: curlimages/curl:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - >
+          while true; do
+            # 1. HTTP traffic to backend-service:80
+            curl -s -m 2 http://backend-service:80 > /dev/null 2>&1 || true;
+
+            # 2. DNS query for backend-service.klystr-test.svc.cluster.local
+            nslookup backend-service.klystr-test.svc.cluster.local > /dev/null 2>&1 || getent hosts backend-service.klystr-test.svc.cluster.local > /dev/null 2>&1 || true;
+
+            # 3. Successful TCP connection to backend-service:80
+            nc -z -w 1 backend-service 80 > /dev/null 2>&1 || curl -s -m 1 --connect-timeout 1 http://backend-service:80 > /dev/null 2>&1 || true;
+
+            # 4. Failed/Rejected TCP connection to backend-service:9999 (intentional failure)
+            nc -z -w 1 backend-service 9999 > /dev/null 2>&1 || curl -s -m 1 --connect-timeout 1 http://backend-service:9999 > /dev/null 2>&1 || true;
+
+            sleep 0.5;
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi

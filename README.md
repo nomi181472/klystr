@@ -1,4 +1,4 @@
-﻿# Klystr
+# Klystr
 
 Klystr is a local-first Kubernetes operations workspace for understanding how a growing application fits together. It brings resource topology, dependency discovery, RBAC inspection, manifest analysis, container-image security, and cluster security checks into one visual interface.
 
@@ -77,11 +77,24 @@ The security workspace assembles a read-oriented snapshot of workload posture, R
 
 Security results are evidence for investigation, not a compliance certification or a guarantee that a cluster is secure.
 
-### Telemetry — coming soon
+### Telemetry (Live Networking)
 
-Telemetry is currently a placeholder for planned real-time operational visibility. The intended direction includes live network relationships, request and traffic signals, workload health, events, metrics, and integrations with existing observability systems.
+The Telemetry workspace provides real-time Kubernetes network observability and TCP-level traffic analysis by streaming eBPF flow data directly from Cilium Hubble Relay (with automatic fallback to high-fidelity live simulation when running offline).
 
-The goal is to help answer questions such as “what is communicating now?”, “which dependency became unhealthy?”, and “what changed after this deployment?” without turning Klystr into a replacement for Prometheus, OpenTelemetry, Grafana, or a tracing backend.
+Key capabilities include:
+
+- **Live Flow Streaming**: Discovers and visualizes real-time pod-to-pod and service-to-service communication paths using Server-Sent Events (SSE) backed by a native Hubble gRPC client.
+- **5 Core TCP/IP Metrics**: Inspect real-time network dynamics across Throughput (KB/s), Packet Rate (pps), Active TCP Connections, TCP Retransmission Rate (%), and Round Trip Time (RTT ms).
+- **Interactive Heatmap Bar & Threshold Coloring**:
+  - Live color-coded edges dynamically transition based on user-configured Min/Max thresholds, sliders, and presets (`Low`, `Normal`, `High`).
+  - Standard mode (alert on traffic spikes exceeding threshold) and Inverted mode (alert when traffic drops below expected baseline).
+  - Customizable alert palette with real-time feedback on exceeding edges.
+- **Topology & Aggregation Controls**:
+  - Toggle between granular Pod replica view and aggregated Workload view.
+  - Namespace and pod multi-select filtering with automatic layout arrangement.
+  - Animated particle/dash streams showing live traffic volume and direction.
+- **Trend Sparklines**: Click any metric edge label to inspect an SVG sparkline showing real-time rolling metric history across live ticks.
+- **Telemetry Doctor**: Built-in connectivity health checker and diagnostic suite to test Hubble Relay endpoints, gRPC ports, NodePort routing, and Kubernetes RBAC readiness.
 
 ### Plugin ideas
 
@@ -121,6 +134,10 @@ The following recordings and screenshots show the current workspaces in action. 
 
 ![Security demo](demos/security/demo.gif)
 
+### Live Networking (Telemetry)
+
+![Live Networking overview](demos/telemetry/live-network/dark-live-network.png)
+
 ## Architecture
 
 Klystr uses a central Next.js shell with independently deployable feature boundaries.
@@ -136,7 +153,7 @@ Klystr shell (layout, navigation, theme, connection state, plugin registry)
   +-- Image Analysis plugin
   +-- Manifest plugin
   +-- Security plugin
-  +-- Telemetry placeholder
+  +-- Telemetry plugin (Live Networking & Hubble Relay)
   |
   v
 Same-origin server routes
@@ -257,7 +274,7 @@ See [Image Analysis configuration](docs/image-analysis.md), [RBAC control](docs/
 
 ## Current limitations
 
-- Telemetry is not implemented yet.
+- Telemetry currently focuses on live eBPF network flow observability via Cilium Hubble Relay; integrations for OpenTelemetry distributed traces and application logs are under active development.
 - Relationship inference is evidence-based and may be incomplete or uncertain when applications do not expose useful Kubernetes metadata or connection information.
 - Large clusters must be narrowed by namespace and resource type.
 - Live image analysis requires additional Kubernetes RBAC, scanner configuration, registry access, and network access.

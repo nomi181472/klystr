@@ -1,0 +1,1623 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: klystr-multitier
+  labels:
+    app.kubernetes.io/name: klystr-multitier
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traffic-control
+  namespace: klystr-multitier
+  labels:
+    app.kubernetes.io/name: traffic-control
+    telemetry: klystr-multitier
+data:
+  config.json: |
+    {
+      "state": "RUNNING",
+      "multiplier": 1.0,
+      "base_rps": 10.0
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: klystr-multitier
+  labels:
+    app.kubernetes.io/name: frontend-config
+    telemetry: klystr-multitier
+data:
+  nginx.conf: |
+    events { 
+      worker_connections 2048; 
+    }
+    http {
+      access_log off;
+      keepalive_timeout 65;
+      
+      upstream gateway_upstream {
+        server api-gateway-service.klystr-multitier.svc.cluster.local:80;
+        keepalive 32;
+      }
+      
+      upstream etl_upstream {
+        server etl-service.klystr-multitier.svc.cluster.local:80;
+        keepalive 32;
+      }
+
+      server {
+        listen 80;
+        
+        location /healthz {
+          return 200 "OK\n";
+        }
+        
+        location /api1 {
+          proxy_pass http://gateway_upstream;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header X-Forwarded-For $remote_addr;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+
+        location /playback {
+          proxy_pass http://gateway_upstream/api1;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header X-Forwarded-For $remote_addr;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location /api2 {
+          proxy_pass http://gateway_upstream;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header X-Forwarded-For $remote_addr;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+
+        location /catalog {
+          proxy_pass http://gateway_upstream/api2;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header X-Forwarded-For $remote_addr;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location /dashboard {
+          proxy_pass http://etl_upstream/dashboard;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location /analytics {
+          proxy_pass http://etl_upstream/analytics;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location /bi {
+          proxy_pass http://etl_upstream/api/bi/metrics;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+
+        location /metrics {
+          proxy_pass http://etl_upstream/api/bi/metrics;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location / {
+          proxy_pass http://etl_upstream/dashboard;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Frontend-Pod $hostname;
+          proxy_set_header Host $host;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: klystr-multitier
+  labels:
+    app.kubernetes.io/name: gateway-config
+    telemetry: klystr-multitier
+data:
+  nginx.conf: |
+    events { 
+      worker_connections 2048; 
+    }
+    http {
+      access_log off;
+      keepalive_timeout 65;
+      
+      upstream api1_upstream {
+        server api1-service.klystr-multitier.svc.cluster.local:80;
+        keepalive 32;
+      }
+      
+      upstream api2_upstream {
+        server api2-service.klystr-multitier.svc.cluster.local:80;
+        keepalive 32;
+      }
+
+      server {
+        listen 80;
+        
+        location /healthz {
+          return 200 "OK\n";
+        }
+        
+        location /api1 {
+          proxy_pass http://api1_upstream/;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Gateway-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+
+        location /playback {
+          proxy_pass http://api1_upstream/;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Gateway-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location /api2 {
+          proxy_pass http://api2_upstream/;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Gateway-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+
+        location /catalog {
+          proxy_pass http://api2_upstream/;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header X-Gateway-Pod $hostname;
+          proxy_set_header Host $host;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 5s;
+        }
+        
+        location / {
+          return 404 "Route not found. Supported endpoints: /api1 (/playback) or /api2 (/catalog)\n";
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-server-script
+  namespace: klystr-multitier
+  labels:
+    app.kubernetes.io/name: api-server-script
+    telemetry: klystr-multitier
+data:
+  server.py: |
+    import http.server
+    import socket
+    import struct
+    import json
+    import uuid
+    import datetime
+    import os
+
+    API_NAME = os.environ.get("API_NAME", "api1")
+    POD_NAME = os.environ.get("POD_NAME", "unknown-pod")
+
+    def talk_to_redis(host="redis-master-service", port=6379):
+        req_id = str(uuid.uuid4())[:8]
+        if API_NAME == "api1":
+            key = f"playback:session:{req_id}"
+            val = f"pod:{POD_NAME}:user_{req_id}:stream=4k-uhd:bitrate=15.4mbps"
+        else:
+            key = f"catalog:recommendation:{req_id}"
+            val = f"pod:{POD_NAME}:user_{req_id}:model=matrix-factorization:cache=hit"
+        try:
+            s = socket.create_connection((host, port), timeout=1.5)
+            cmd = (
+                f"*5\r\n$3\r\nSET\r\n${len(key)}\r\n{key}\r\n${len(val)}\r\n{val}\r\n$2\r\nEX\r\n$2\r\n60\r\n"
+                f"*2\r\n$3\r\nGET\r\n${len(key)}\r\n{key}\r\n"
+            )
+            s.sendall(cmd.encode("utf-8"))
+            resp = s.recv(1024)
+            s.close()
+            return "ok" if (b"+OK" in resp or b"$" in resp) else "unexpected_resp"
+        except Exception as e:
+            return f"error: {e}"
+
+    def talk_to_postgres(host="db-service", port=5432):
+        try:
+            s = socket.create_connection((host, port), timeout=1.5)
+            body = b'user\x00postgres\x00database\x00postgres\x00\x00'
+            msg = struct.pack('!II', 8 + len(body), 196608) + body
+            s.sendall(msg)
+            buf = s.recv(4096)
+            if b'Z' not in buf:
+                buf += s.recv(4096)
+            query = b'SELECT 1;'
+            qmsg = b'Q' + struct.pack('!I', 4 + len(query) + 1) + query + b'\x00'
+            s.sendall(qmsg)
+            qresp = s.recv(4096)
+            s.close()
+            return "ok" if (b'C' in qresp or b'Z' in qresp or b'T' in qresp) else "unexpected_resp"
+        except Exception as e:
+            return f"error: {e}"
+
+    class APIHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK\n")
+                return
+
+            req_id = str(uuid.uuid4())[:8]
+            redis_status = talk_to_redis()
+            db_status = talk_to_postgres()
+
+            if API_NAME == "api1":
+                service_title = "playback-session-service"
+                payload = {
+                    "playback_session_id": f"nflx-sess-{req_id}",
+                    "video_stream": {
+                        "resolution": "3840x2160 (4K UHD)",
+                        "hdr_format": "Dolby Vision Profile 8",
+                        "audio_codec": "Dolby Atmos (E-AC3-JOC)",
+                        "target_bitrate_mbps": 15.4,
+                        "cdn_edge_pop": "openconnect-edge-iad1"
+                    },
+                    "drm_licensing": {
+                        "scheme": "Widevine L1",
+                        "license_status": "GRANTED",
+                        "entitlement_tier": "PREMIUM_4_SCREENS"
+                    }
+                }
+            else:
+                service_title = "catalog-recommendation-service"
+                payload = {
+                    "recommendation_session_id": f"nflx-recom-{req_id}",
+                    "personalization": {
+                        "algorithm_version": "deep-retrieval-v3",
+                        "vector_similarity_score": 0.942,
+                        "trending_cluster": "global-top-10",
+                        "cached_items_returned": 24
+                    },
+                    "metadata_store": {
+                        "catalog_version": "2026.09.06",
+                        "region": "GLOBAL"
+                    }
+                }
+
+            data = {
+                "platform": "Netflix-Cloud-Streaming",
+                "service": service_title,
+                "api": API_NAME,
+                "pod": POD_NAME,
+                "request_id": req_id,
+                "details": payload,
+                "storage_telemetry": {
+                    "redis_playback_cache": redis_status,
+                    "database_primary_oltp": db_status
+                },
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
+            body = json.dumps(data, indent=2).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            return
+
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), APIHandler)
+    print(f"[{API_NAME}] Server running on port 8080")
+    server.serve_forever()
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etl-service-script
+  namespace: klystr-multitier
+  labels:
+    app.kubernetes.io/name: etl-service-script
+    telemetry: klystr-multitier
+data:
+  etl_server.py: |
+    import http.server
+    import socket
+    import struct
+    import json
+    import uuid
+    import datetime
+    import threading
+    import time
+    import random
+    import os
+
+    POD_NAME = os.environ.get("POD_NAME", "etl-pod")
+
+    bi_store = {
+        "platform": "Netflix-OpenConnect-Telemetry",
+        "service": "streaming-qoe-analytics-engine",
+        "pod": POD_NAME,
+        "status": "HEALTHY",
+        "data_source": "PostgreSQL Cascaded Read Replicas (db-replica-service:5432)",
+        "total_batches_processed": 0,
+        "total_events_extracted": 0,
+        "active_stream_sessions": 1420500,
+        "cdn_egress_gbps": 12.8,
+        "catalog_impressions_sec": 8420,
+        "cache_hit_ratio": 98.6,
+        "rebuffer_ratio_pct": 0.24,
+        "etl_latency_ms": 3.2,
+        "last_batch_time": None,
+        "latest_batches": []
+    }
+    lock = threading.Lock()
+
+    def query_replica(host="db-replica-service.klystr-multitier.svc.cluster.local", port=5432):
+        try:
+            s = socket.create_connection((host, port), timeout=2.0)
+            body = b'user\x00postgres\x00database\x00postgres\x00\x00'
+            msg = struct.pack('!II', 8 + len(body), 196608) + body
+            s.sendall(msg)
+            buf = s.recv(4096)
+            if b'Z' not in buf:
+                buf += s.recv(4096)
+            query = b'SELECT pg_is_in_recovery(), inet_server_addr(), current_timestamp;'
+            qmsg = b'Q' + struct.pack('!I', 4 + len(query) + 1) + query + b'\x00'
+            s.sendall(qmsg)
+            qresp = s.recv(4096)
+            s.close()
+            return "ok" if (b'C' in qresp or b'Z' in qresp or b'T' in qresp) else "warn"
+        except Exception as e:
+            return f"error: {e}"
+
+    def etl_worker():
+        batch_num = 0
+        while True:
+            batch_num += 1
+            t0 = time.time()
+            status = query_replica()
+            latency = (time.time() - t0) * 1000.0
+            events_extracted = random.randint(450, 1250)
+
+            with lock:
+                bi_store["total_batches_processed"] += 1
+                bi_store["total_events_extracted"] += events_extracted
+                bi_store["etl_latency_ms"] = round(latency, 2)
+                bi_store["active_stream_sessions"] = 1420000 + random.randint(500, 45000)
+                bi_store["cdn_egress_gbps"] = round(12.4 + random.random() * 3.8, 2)
+                bi_store["catalog_impressions_sec"] = 8200 + random.randint(50, 600)
+                bi_store["rebuffer_ratio_pct"] = round(0.20 + random.random() * 0.08, 3)
+                bi_store["last_batch_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                batch_entry = {
+                    "batch_id": f"batch-{uuid.uuid4().hex[:6]}",
+                    "batch_num": batch_num,
+                    "replica_status": status,
+                    "records": events_extracted,
+                    "latency_ms": round(latency, 2),
+                    "timestamp": bi_store["last_batch_time"]
+                }
+                bi_store["latest_batches"].insert(0, batch_entry)
+                if len(bi_store["latest_batches"]) > 10:
+                    bi_store["latest_batches"].pop()
+            time.sleep(2.0)
+
+    class BIHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK\n")
+                return
+
+            if self.path in ("/api/bi/metrics", "/analytics", "/bi"):
+                with lock:
+                    data = dict(bi_store)
+                    data["server_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                body = json.dumps(data, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if self.path in ("/dashboard", "/"):
+                with lock:
+                    d = dict(bi_store)
+                html = f"""<!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta http-equiv="refresh" content="3">
+      <title>Netflix Streaming Telemetry & Quality of Experience (QoE) Dashboard</title>
+      <style>
+        :root {{
+          --bg: #0d0f12;
+          --card-bg: #161a22;
+          --border: #262c36;
+          --netflix-red: #E50914;
+          --text-main: #f3f4f6;
+          --text-sub: #9ca3af;
+          --accent-green: #10B981;
+          --accent-blue: #3B82F6;
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          background: var(--bg);
+          color: var(--text-main);
+          margin: 0;
+          padding: 28px;
+        }}
+        .container {{ max-width: 1300px; margin: 0 auto; }}
+        .header {{
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 20px;
+          margin-bottom: 24px;
+        }}
+        .brand {{
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }}
+        .brand-logo {{
+          background: var(--netflix-red);
+          color: #fff;
+          font-weight: 900;
+          font-size: 18px;
+          padding: 6px 14px;
+          border-radius: 4px;
+          letter-spacing: 0.08em;
+        }}
+        .title-group h1 {{
+          margin: 0;
+          font-size: 22px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+        }}
+        .title-group p {{
+          margin: 4px 0 0 0;
+          color: var(--text-sub);
+          font-size: 13px;
+        }}
+        .badge {{
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(16, 185, 129, 0.15);
+          border: 1px solid rgba(16, 185, 129, 0.35);
+          color: var(--accent-green);
+          padding: 6px 14px;
+          border-radius: 9999px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }}
+        .pulse-dot {{
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--accent-green);
+          box-shadow: 0 0 8px var(--accent-green);
+        }}
+        .grid {{
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 18px;
+          margin-bottom: 28px;
+        }}
+        .card {{
+          background: var(--card-bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 20px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          transition: transform 0.15s ease, border-color 0.15s ease;
+        }}
+        .card:hover {{
+          transform: translateY(-2px);
+          border-color: #3b4252;
+        }}
+        .card h3 {{
+          margin: 0 0 10px 0;
+          font-size: 12px;
+          color: var(--text-sub);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-weight: 600;
+        }}
+        .card .val {{
+          font-size: 28px;
+          font-weight: 800;
+          color: #fff;
+          letter-spacing: -0.02em;
+        }}
+        .card .sub {{
+          font-size: 12px;
+          color: var(--text-sub);
+          margin-top: 6px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }}
+        .section-title {{
+          font-size: 16px;
+          font-weight: 700;
+          margin: 0 0 14px 0;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }}
+        .refresh-label {{
+          font-size: 12px;
+          color: var(--text-sub);
+          font-weight: 400;
+        }}
+        table {{
+          width: 100%;
+          border-collapse: collapse;
+          background: var(--card-bg);
+          border-radius: 10px;
+          overflow: hidden;
+          border: 1px solid var(--border);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }}
+        th, td {{
+          padding: 13px 18px;
+          text-align: left;
+          font-size: 13px;
+          border-bottom: 1px solid var(--border);
+        }}
+        th {{
+          background: #1c212c;
+          color: var(--text-sub);
+          font-weight: 600;
+          text-transform: uppercase;
+          font-size: 11px;
+          letter-spacing: 0.05em;
+        }}
+        tr:last-child td {{ border-bottom: none; }}
+        tr:hover {{ background: #1c222e; }}
+        code {{
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          color: #93c5fd;
+          background: rgba(59, 130, 246, 0.12);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 12px;
+        }}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="brand">
+            <div class="brand-logo">NETFLIX</div>
+            <div class="title-group">
+              <h1>Streaming Telemetry & Quality of Experience (QoE) Engine</h1>
+              <p>Klystr Enterprise Multi-Tier Observability &bull; eBPF Flow Validation Platform</p>
+            </div>
+          </div>
+          <div>
+            <span class="badge"><span class="pulse-dot"></span> LIVE ENGINE &bull; {d['status']}</span>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Active Concurrent Streams</h3>
+            <div class="val" style="color:#60a5fa;">{d['active_stream_sessions']:,}</div>
+            <div class="sub">Global 4K UHD & HDR sessions</div>
+          </div>
+          <div class="card">
+            <h3>CDN Egress Throughput</h3>
+            <div class="val" style="color:#34d399;">{d['cdn_egress_gbps']} Gbps</div>
+            <div class="sub">Open Connect Edge distribution</div>
+          </div>
+          <div class="card">
+            <h3>Global Rebuffer Ratio</h3>
+            <div class="val" style="color:#f59e0b;">{d['rebuffer_ratio_pct']}%</div>
+            <div class="sub">SLA target &lt; 0.35% (Optimal)</div>
+          </div>
+          <div class="card">
+            <h3>Cache Hit Ratio</h3>
+            <div class="val" style="color:#a78bfa;">{d['cache_hit_ratio']}%</div>
+            <div class="sub">Redis session cluster offload</div>
+          </div>
+          <div class="card">
+            <h3>Cascading DB Replica Latency</h3>
+            <div class="val" style="color:#f472b6;">{d['etl_latency_ms']} ms</div>
+            <div class="sub">Read-offload: db-replica-0/1</div>
+          </div>
+          <div class="card">
+            <h3>Total Ingested Telemetry</h3>
+            <div class="val" style="color:#cbd5e1;">{d['total_events_extracted']:,}</div>
+            <div class="sub">{d['total_batches_processed']} micro-batches processed</div>
+          </div>
+        </div>
+
+        <div class="section-title">
+          <span>Recent Ingested Streaming Micro-Batches</span>
+          <span class="refresh-label">Auto-refreshing every 3 seconds</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Batch ID</th>
+              <th>Batch #</th>
+              <th>Cascading Replica Status</th>
+              <th>Ingested Records</th>
+              <th>Extraction Latency</th>
+              <th>Timestamp (UTC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join([f"<tr><td><code>{b['batch_id']}</code></td><td>#{b['batch_num']}</td><td><span style='color:#10b981;'>● {b['replica_status']}</span></td><td>{b['records']:,}</td><td>{b['latency_ms']} ms</td><td>{b['timestamp']}</td></tr>" for b in d['latest_batches']])}
+          </tbody>
+        </table>
+      </div>
+    </body>
+    </html>"""
+                body = html.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"Not Found\n")
+
+        def log_message(self, format, *args): pass
+
+    threading.Thread(target=etl_worker, daemon=True).start()
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), BIHandler)
+    print(f"[{POD_NAME}] Enterprise BI & ETL server running on port 8080")
+    server.serve_forever()
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traffic-generator-script
+  namespace: klystr-multitier
+  labels:
+    app.kubernetes.io/name: traffic-generator-script
+    telemetry: klystr-multitier
+data:
+  generator.py: |
+    import time
+    import urllib.request
+    import socket
+    import json
+    import os
+    import random
+
+    CONFIG_FILE = "/tmp/traffic-control"
+    DEFAULT_CONFIG = "/etc/traffic-control/config.json"
+
+    def read_config():
+        cfg = {"state": "RUNNING", "multiplier": 1.0, "base_rps": 10.0}
+        path = CONFIG_FILE if os.path.exists(CONFIG_FILE) else DEFAULT_CONFIG
+        try:
+            with open(path, "r") as f:
+                content = f.read().strip()
+                if content.startswith("{"):
+                    cfg.update(json.loads(content))
+                else:
+                    for line in content.splitlines():
+                        if "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip().lower()
+                            v = v.strip()
+                            if k == "state":
+                                cfg["state"] = v
+                            elif k in ("multiplier", "base_rps"):
+                                cfg[k] = float(v)
+        except Exception:
+            pass
+        return cfg
+
+    def main():
+        print("[Traffic-Generator] Netflix enterprise multi-tier viewer traffic simulator active...")
+        fe_host = "frontend-service.klystr-multitier.svc.cluster.local"
+        fe_url_api1 = f"http://{fe_host}:80/api1"
+        fe_url_api2 = f"http://{fe_host}:80/api2"
+        fe_url_dashboard = f"http://{fe_host}:80/dashboard"
+        fe_url_bi = f"http://{fe_host}:80/bi"
+
+        counter = 0
+        while True:
+            cfg = read_config()
+            state = str(cfg.get("state", "RUNNING")).strip().upper()
+            multiplier = float(cfg.get("multiplier", 1.0))
+            base_rps = float(cfg.get("base_rps", 10.0))
+
+            # Strict 0 RPS when STOPPED or PAUSED
+            if state in ("STOPPED", "PAUSED", "HALTED"):
+                time.sleep(0.5)
+                continue
+
+            target_rps = max(1.0, base_rps * multiplier)
+            sleep_interval = 1.0 / target_rps
+
+            roll = random.random()
+            if roll < 0.45:
+                target_url = fe_url_api1
+            elif roll < 0.80:
+                target_url = fe_url_api2
+            elif roll < 0.92:
+                target_url = fe_url_dashboard
+            else:
+                target_url = fe_url_bi
+
+            try:
+                req = urllib.request.Request(
+                    target_url,
+                    headers={
+                        "User-Agent": "Netflix-ExoPlayer/2.18.2 (Linux; Android 14; BRAVIA-4K)",
+                        "X-Device-Type": "SmartTV-4K-UHD",
+                        "X-Client-Tier": "edge-viewer",
+                        "X-Session-Source": "synthetic-audience"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=1.5) as resp:
+                    resp.read()
+            except Exception:
+                pass
+
+            counter += 1
+            # Periodically generate intentional closed-port connection attempt for eBPF TCP RST drop/rejection telemetry
+            if counter % 25 == 0:
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(0.1)
+                    s.connect((fe_host, 9999))
+                    s.close()
+                except Exception:
+                    pass
+
+            time.sleep(sleep_interval)
+
+    if __name__ == "__main__":
+        main()
+---
+# ==========================================
+# 1. PostgreSQL OLTP Primary (StatefulSet 1x)
+# Core metadata: user accounts, subscriptions, DRM licenses
+# ==========================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  namespace: klystr-multitier
+  labels:
+    app: db
+    app.kubernetes.io/name: postgresql-primary
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  serviceName: db-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+        app.kubernetes.io/name: postgresql-primary
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POSTGRES_DB
+          value: postgres
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_HOST_AUTH_METHOD
+          value: trust
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - >
+                until pg_isready -h 127.0.0.1 -p 5432 -U postgres; do sleep 1; done;
+                if ! grep -q "host replication all all trust" /var/lib/postgresql/data/pg_hba.conf; then
+                  echo "host replication all all trust" >> /var/lib/postgresql/data/pg_hba.conf;
+                  psql -U postgres -c "SELECT pg_reload_conf();";
+                fi
+        resources:
+          requests:
+            cpu: 20m
+            memory: 48Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service
+  namespace: klystr-multitier
+  labels:
+    app: db
+    app.kubernetes.io/name: postgresql-primary
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+  selector:
+    app: db
+---
+# ==========================================
+# 2. PostgreSQL Cascading Read Replicas (StatefulSet 2x)
+# db-replica-0 replicates from db (Primary)
+# db-replica-1 replicates from db-replica-0 (Cascading replica-to-replica WAL streaming)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-replica-nodes
+  namespace: klystr-multitier
+  labels:
+    app: db-replica
+    app.kubernetes.io/name: postgresql-replica-nodes
+    telemetry: klystr-multitier
+spec:
+  clusterIP: None
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+  selector:
+    app: db-replica
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-replica-service
+  namespace: klystr-multitier
+  labels:
+    app: db-replica
+    app.kubernetes.io/name: postgresql-replica-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+  selector:
+    app: db-replica
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db-replica
+  namespace: klystr-multitier
+  labels:
+    app: db-replica
+    app.kubernetes.io/name: postgresql-cascading-replicas
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  serviceName: db-replica-nodes
+  replicas: 2
+  selector:
+    matchLabels:
+      app: db-replica
+  template:
+    metadata:
+      labels:
+        app: db-replica
+        app.kubernetes.io/name: postgresql-cascading-replicas
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: postgres-replica
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - >
+          INDEX=$(echo $HOSTNAME | awk -F'-' '{print $NF}');
+          echo "[Replica Boot] Node $HOSTNAME (Index: $INDEX)";
+          if [ "$INDEX" = "0" ]; then
+            UPSTREAM="db-service.klystr-multitier.svc.cluster.local";
+            echo "[Replica-0] Waiting for Primary DB $UPSTREAM:5432...";
+            until pg_isready -h "$UPSTREAM" -p 5432 -U postgres; do sleep 1; done;
+          else
+            UPSTREAM="db-replica-0.db-replica-nodes.klystr-multitier.svc.cluster.local";
+            echo "[Replica-1] Waiting for Cascading Parent Replica-0 $UPSTREAM:5432...";
+            until pg_isready -h "$UPSTREAM" -p 5432 -U postgres; do sleep 1; done;
+          fi;
+          echo "[Replica Boot] Performing pg_basebackup from $UPSTREAM...";
+          rm -rf /var/lib/postgresql/data/*;
+          PGPASSWORD="" pg_basebackup -h "$UPSTREAM" -p 5432 -U postgres -D /var/lib/postgresql/data -Fp -Xs -R;
+          chown -R postgres:postgres /var/lib/postgresql/data;
+          chmod 700 /var/lib/postgresql/data;
+          if ! grep -q "host replication all all trust" /var/lib/postgresql/data/pg_hba.conf; then
+            echo "host replication all all trust" >> /var/lib/postgresql/data/pg_hba.conf;
+          fi;
+          echo "[Replica Boot] Starting PostgreSQL standby server...";
+          exec su-exec postgres postgres -D /var/lib/postgresql/data;
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres"]
+          initialDelaySeconds: 4
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 20m
+            memory: 48Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# ==========================================
+# 3. Redis Master (StatefulSet 1x)
+# In-memory playback session cache & distributed rate-limiter
+# ==========================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-master
+  namespace: klystr-multitier
+  labels:
+    app: redis-master
+    app.kubernetes.io/name: redis-master
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  serviceName: redis-master-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-master
+  template:
+    metadata:
+      labels:
+        app: redis-master
+        app.kubernetes.io/name: redis-master
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["redis-server", "--protected-mode", "no"]
+        ports:
+        - containerPort: 6379
+          name: redis
+        readinessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 15m
+            memory: 24Mi
+          limits:
+            cpu: 150m
+            memory: 96Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master-service
+  namespace: klystr-multitier
+  labels:
+    app: redis-master
+    app.kubernetes.io/name: redis-master-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  selector:
+    app: redis-master
+---
+# ==========================================
+# 4. Redis Replica (StatefulSet 1x)
+# Active replica synchronized via continuous long-lived TCP replication
+# ==========================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-replica
+  namespace: klystr-multitier
+  labels:
+    app: redis-replica
+    app.kubernetes.io/name: redis-replica
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  serviceName: redis-replica-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-replica
+  template:
+    metadata:
+      labels:
+        app: redis-replica
+        app.kubernetes.io/name: redis-replica
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["redis-server", "--protected-mode", "no", "--replicaof", "redis-master-service.klystr-multitier.svc.cluster.local", "6379"]
+        ports:
+        - containerPort: 6379
+          name: redis
+        readinessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 15m
+            memory: 24Mi
+          limits:
+            cpu: 150m
+            memory: 96Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-replica-service
+  namespace: klystr-multitier
+  labels:
+    app: redis-replica
+    app.kubernetes.io/name: redis-replica-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  selector:
+    app: redis-replica
+---
+# ==========================================
+# 5. Playback & Session Service (API 1 - Deployment 2x)
+# Manages active 4K UHD video playback sessions and DRM licensing
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api1
+  namespace: klystr-multitier
+  labels:
+    app: api1
+    app.kubernetes.io/name: playback-session-service
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api1
+  template:
+    metadata:
+      labels:
+        app: api1
+        app.kubernetes.io/name: playback-session-service
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: api
+        image: python:3-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "/app/server.py"]
+        env:
+        - name: API_NAME
+          value: "api1"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: script-vol
+          mountPath: /app
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 15m
+            memory: 24Mi
+          limits:
+            cpu: 150m
+            memory: 96Mi
+      volumes:
+      - name: script-vol
+        configMap:
+          name: api-server-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api1-service
+  namespace: klystr-multitier
+  labels:
+    app: api1
+    app.kubernetes.io/name: playback-session-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: api1
+---
+# ==========================================
+# 6. Video Metadata & Catalog Service (API 2 - Deployment 2x)
+# Manages personalized content recommendations and catalog search
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api2
+  namespace: klystr-multitier
+  labels:
+    app: api2
+    app.kubernetes.io/name: catalog-recommendation-service
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api2
+  template:
+    metadata:
+      labels:
+        app: api2
+        app.kubernetes.io/name: catalog-recommendation-service
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: api
+        image: python:3-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "/app/server.py"]
+        env:
+        - name: API_NAME
+          value: "api2"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: script-vol
+          mountPath: /app
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 15m
+            memory: 24Mi
+          limits:
+            cpu: 150m
+            memory: 96Mi
+      volumes:
+      - name: script-vol
+        configMap:
+          name: api-server-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api2-service
+  namespace: klystr-multitier
+  labels:
+    app: api2
+    app.kubernetes.io/name: catalog-recommendation-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: api2
+---
+# ==========================================
+# 7. Dynamic API Gateway (Zuul-style - Deployment 2x)
+# Internal reverse proxy routing to Playback and Catalog microservices
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: klystr-multitier
+  labels:
+    app: api-gateway
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        app.kubernetes.io/name: api-gateway
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+        volumeMounts:
+        - name: config-vol
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      volumes:
+      - name: config-vol
+        configMap:
+          name: gateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: klystr-multitier
+  labels:
+    app: api-gateway
+    app.kubernetes.io/name: api-gateway-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: api-gateway
+---
+# ==========================================
+# 8. Streaming QoE Analytics & ETL Engine (Deployment 2x)
+# Extracts viewing session metrics from PostgreSQL Cascading Standby Replicas
+# Serves Real-time Analytics API and Executive Streaming Dashboard
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etl-service
+  namespace: klystr-multitier
+  labels:
+    app: etl-service
+    app.kubernetes.io/name: etl-analytics-service
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: etl-service
+  template:
+    metadata:
+      labels:
+        app: etl-service
+        app.kubernetes.io/name: etl-analytics-service
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: etl
+        image: python:3-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "/app/etl_server.py"]
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: script-vol
+          mountPath: /app
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 15m
+            memory: 24Mi
+          limits:
+            cpu: 120m
+            memory: 80Mi
+      volumes:
+      - name: script-vol
+        configMap:
+          name: etl-service-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etl-service
+  namespace: klystr-multitier
+  labels:
+    app: etl-service
+    app.kubernetes.io/name: etl-analytics-service
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: etl-service
+---
+# ==========================================
+# 9. Edge CDN Ingress Proxy (Open Connect Edge - Deployment 2x)
+# Ingress entrypoint for audience devices:
+# - Routes playback and catalog requests -> api-gateway-service
+# - Routes telemetry and QoE dashboard -> etl-service
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: klystr-multitier
+  labels:
+    app: frontend
+    app.kubernetes.io/name: edge-cdn-ingress
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        app.kubernetes.io/name: edge-cdn-ingress
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+        volumeMounts:
+        - name: config-vol
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      volumes:
+      - name: config-vol
+        configMap:
+          name: frontend-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: klystr-multitier
+  labels:
+    app: frontend
+    app.kubernetes.io/name: edge-cdn-ingress
+    telemetry: klystr-multitier
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: frontend
+---
+# ==========================================
+# 10. Synthetic Audience Simulator (Deployment 2x)
+# Simulates global Smart TVs, mobile devices, and browser viewers
+# Controllable dynamically via traffic-control ConfigMap
+# ==========================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+  namespace: klystr-multitier
+  labels:
+    app: traffic-generator
+    app.kubernetes.io/name: synthetic-audience-generator
+    app.kubernetes.io/part-of: klystr-telemetry
+    telemetry: klystr-multitier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+        app.kubernetes.io/name: synthetic-audience-generator
+        app.kubernetes.io/part-of: klystr-telemetry
+        telemetry: klystr-multitier
+    spec:
+      containers:
+      - name: generator
+        image: python:3-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "/app/generator.py"]
+        volumeMounts:
+        - name: script-vol
+          mountPath: /app
+        - name: control-vol
+          mountPath: /etc/traffic-control
+        resources:
+          requests:
+            cpu: 15m
+            memory: 24Mi
+          limits:
+            cpu: 150m
+            memory: 96Mi
+      volumes:
+      - name: script-vol
+        configMap:
+          name: traffic-generator-script
+      - name: control-vol
+        configMap:
+          name: traffic-control
