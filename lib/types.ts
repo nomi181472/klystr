@@ -244,10 +244,13 @@ export interface K8sContext {
 
 export interface ConnectionSettings {
   mode: 'live' | 'mock';
-  clusterUrl: string;
+  clusterUrl?: string;
   connectionId?: string;
   token?: string;
   skipTlsVerify?: boolean;
+  environment?: 'default' | 'microk8s' | 'k3s' | 'custom';
+  kubeconfigPath?: string;
+  contextName?: string;
 }
 
 

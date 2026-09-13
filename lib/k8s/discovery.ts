@@ -1,4 +1,6 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import * as k8s from '@kubernetes/client-node';
 import type { K8sKind } from '@/config/resource-types';
 import type { ConnectionSettings, DiscoveryWarning, K8sResource, ResourcePort, ContainerInfo, EnvVar, VolumeMount, PodMetricsResponse } from '@/lib/types';
@@ -531,20 +533,67 @@ export function kubernetesErrorStatus(error: any): number | undefined {
 }
 
 export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.KubeConfig {
-  const connection = resolveConnection(settings);
   const kubeConfig = new k8s.KubeConfig();
-  const parsedUrl = new URL(connection.clusterUrl);
-  const server = `${parsedUrl.protocol}//${parsedUrl.host}`;
-  logger.info('using configured endpoint', {
-    server,
-    source: 'server-registry',
-    protocol: parsedUrl.protocol,
-  });
-  kubeConfig.loadFromOptions({
-    clusters: [{ name: 'request-cluster', server, skipTLSVerify: connection.skipTlsVerify }],
-    users: [{ name: 'request-token-user', token: connection.token }],
-    contexts: [{ name: 'request-context', cluster: 'request-cluster', user: 'request-token-user' }],
-    currentContext: 'request-context',
-  });
+
+  // If explicit remote clusterUrl & token were provided via remote registration
+  if (settings?.clusterUrl && (settings.token || settings.connectionId)) {
+    try {
+      const connection = resolveConnection(settings);
+      if (connection.clusterUrl) {
+        const parsedUrl = new URL(connection.clusterUrl);
+        const server = `${parsedUrl.protocol}//${parsedUrl.host}`;
+        logger.info('using configured endpoint', {
+          server,
+          source: 'server-registry',
+          protocol: parsedUrl.protocol,
+        });
+        kubeConfig.loadFromOptions({
+          clusters: [{ name: 'request-cluster', server, skipTLSVerify: connection.skipTlsVerify }],
+          users: [{ name: 'request-token-user', token: connection.token }],
+          contexts: [{ name: 'request-context', cluster: 'request-cluster', user: 'request-token-user' }],
+          currentContext: 'request-context',
+        });
+        return kubeConfig;
+      }
+    } catch {
+      // Fall through to local kubeconfig discovery
+    }
+  }
+
+  // 1. Custom Kubeconfig path provided by user
+  if (settings?.kubeconfigPath && existsSync(settings.kubeconfigPath)) {
+    logger.info('loading custom kubeconfig path', { path: settings.kubeconfigPath });
+    kubeConfig.loadFromFile(settings.kubeconfigPath);
+  }
+  // 2. K3s default configuration
+  else if (settings?.environment === 'k3s' && existsSync('/etc/rancher/k3s/k3s.yaml')) {
+    logger.info('loading k3s kubeconfig');
+    kubeConfig.loadFromFile('/etc/rancher/k3s/k3s.yaml');
+  }
+  // 3. Standard local default (~/.kube/config or KUBECONFIG env or microk8s)
+  else {
+    try {
+      kubeConfig.loadFromDefault();
+    } catch (err) {
+      // If default fails, check microk8s config CLI
+      try {
+        const yaml = execSync('microk8s config', { encoding: 'utf-8', timeout: 3000 });
+        kubeConfig.loadFromString(yaml);
+      } catch {
+        logger.warn('could not load default kubeconfig', { error: String(err) });
+      }
+    }
+  }
+
+  // Set active context if specified
+  const targetContext = settings?.contextName;
+  if (targetContext) {
+    try {
+      kubeConfig.setCurrentContext(targetContext);
+    } catch {
+      // ignore
+    }
+  }
+
   return kubeConfig;
 }

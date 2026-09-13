@@ -12,11 +12,16 @@ export async function POST(request: Request) {
   let uploaded: UploadedManifestFile[];
   if (request.headers.get('content-type')?.includes('application/json')) {
     try {
-      const payload = await request.json() as { url?: unknown };
-      if (typeof payload.url !== 'string' || !payload.url.trim()) throw new Error('Enter a manifest URL.');
-      uploaded = [await fetchRemoteManifest(payload.url)];
+      const payload = await request.json() as { url?: unknown; files?: UploadedManifestFile[] };
+      if (Array.isArray(payload.files) && payload.files.length > 0) {
+        uploaded = payload.files;
+      } else if (typeof payload.url === 'string' && payload.url.trim()) {
+        uploaded = [await fetchRemoteManifest(payload.url)];
+      } else {
+        throw new Error('Enter a manifest URL or provide manifest files.');
+      }
     } catch (error) {
-      return Response.json({ error: error instanceof Error ? error.message : 'The manifest URL could not be loaded.' }, { status: 400 });
+      return Response.json({ error: error instanceof Error ? error.message : 'The manifest payload could not be loaded.' }, { status: 400 });
     }
   } else {
     const form = await request.formData();

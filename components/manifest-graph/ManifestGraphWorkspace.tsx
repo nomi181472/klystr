@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, FileCode2, FolderOpen, GitFork, Info, Link2, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,8 @@ export function ManifestGraphWorkspace() {
   const [ingesting, setIngesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('overview');
+  const [isInsideVsCode, setIsInsideVsCode] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<Array<{ relativePath: string; content: string }>>([]);
 
   const eventSummary = useMemo(() => ({
     done: [...events].reverse().find((event): event is Extract<IngestEvent, { type: 'done' }> => event.type === 'done'),
@@ -73,7 +75,7 @@ export function ManifestGraphWorkspace() {
     setWorkspaceView('overview');
   };
 
-  const ingest = async (source: 'files' | 'url' = 'files') => {
+  const ingest = async (source: 'files' | 'url' | 'workspace' = 'files', customFiles?: Array<{ relativePath: string; content: string }>) => {
     if (graph?.sessionId) void fetch(`/api/manifest-graph/${graph.sessionId}`, { method: 'DELETE' }).catch(() => undefined);
     setIngesting(true);
     setEvents([]);
@@ -85,6 +87,9 @@ export function ManifestGraphWorkspace() {
       const headers: HeadersInit = {};
       if (source === 'url') {
         body = JSON.stringify({ url: manifestUrl.trim() });
+        headers['Content-Type'] = 'application/json';
+      } else if (source === 'workspace' && customFiles) {
+        body = JSON.stringify({ files: customFiles });
         headers['Content-Type'] = 'application/json';
       } else {
         const form = new FormData();
@@ -141,13 +146,33 @@ export function ManifestGraphWorkspace() {
     }
   };
 
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (data?.command === 'workspaceManifestsUpdated' || data?.command === 'workspaceManifestsResponse') {
+        const scan = data.data;
+        if (scan?.files && Array.isArray(scan.files) && scan.files.length > 0) {
+          setIsInsideVsCode(true);
+          setWorkspaceFiles(scan.files);
+          void ingest('workspace', scan.files);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    if (typeof window !== 'undefined' && window.parent !== window) {
+      setIsInsideVsCode(true);
+      window.parent.postMessage({ command: 'requestWorkspaceManifests' }, '*');
+    }
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   const openMap = (nodeKey?: string) => {
     if (nodeKey) setSelectedKey(nodeKey);
     setWorkspaceView('map');
   };
 
   return <div className="flex h-full min-h-0 flex-col bg-background p-3 sm:p-4"><div className="mx-auto flex h-full min-h-0 w-full max-w-[1800px] flex-col gap-4">
-    <Card className="shrink-0 border-border bg-card"><CardHeader className="pb-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle className="flex items-center gap-2 text-base"><GitFork size={17} className="text-primary"/>Manifest visibility</CardTitle><CardDescription className="mt-1">Upload raw manifests or Helm folders to inventory objects, explain relationships, and surface declared-state findings. Cluster REST discovery remains separate.</CardDescription></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => fileInput.current?.click()} disabled={ingesting}><FileCode2 size={14}/>Files</Button><Button variant="outline" size="sm" onClick={() => folderInput.current?.click()} disabled={ingesting}><FolderOpen size={14}/>Folder</Button><Button size="sm" onClick={() => void ingest()} disabled={!files.length || ingesting}>{ingesting ? <LoadingIndicator size="sm"/> : <Upload size={14}/>}Ingest {files.length || ''}</Button></div></div></CardHeader><CardContent className="pt-0">
+    <Card className="shrink-0 border-border bg-card"><CardHeader className="pb-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle className="flex items-center gap-2 text-base"><GitFork size={17} className="text-primary"/>Manifest visibility</CardTitle><CardDescription className="mt-1">Upload raw manifests or Helm folders to inventory objects, explain relationships, and surface declared-state findings. Cluster REST discovery remains separate.</CardDescription></div><div className="flex flex-wrap gap-2">{isInsideVsCode && <Button variant="secondary" size="sm" onClick={() => { if (workspaceFiles.length > 0) { void ingest('workspace', workspaceFiles); } else { window.parent.postMessage({ command: 'requestWorkspaceManifests' }, '*'); } }} disabled={ingesting}><FileCode2 size={14} className="text-primary"/>Workspace YAMLs {workspaceFiles.length ? `(${workspaceFiles.length})` : ''}</Button>}<Button variant="outline" size="sm" onClick={() => fileInput.current?.click()} disabled={ingesting}><FileCode2 size={14}/>Files</Button><Button variant="outline" size="sm" onClick={() => folderInput.current?.click()} disabled={ingesting}><FolderOpen size={14}/>Folder</Button><Button size="sm" onClick={() => void ingest()} disabled={!files.length || ingesting}>{ingesting ? <LoadingIndicator size="sm"/> : <Upload size={14}/>}Ingest {files.length || ''}</Button></div></div></CardHeader><CardContent className="pt-0">
       <input ref={fileInput} hidden type="file" multiple accept=".yaml,.yml,.json" onClick={event => { event.currentTarget.value = ''; }} onChange={event => choose(event.target.files)}/>
       <input ref={element => { folderInput.current = element; if (element) (element as DirectoryInput).webkitdirectory = true; }} hidden type="file" multiple onClick={event => { event.currentTarget.value = ''; }} onChange={event => choose(event.target.files, true)}/>
       <form className="mb-3 flex flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); void ingest('url'); }}><div className="relative min-w-0 flex-1"><Link2 size={14} className="absolute left-2.5 top-2.5 text-muted-foreground"/><Input aria-label="Manifest YAML URL" type="url" value={manifestUrl} onChange={event => setManifestUrl(event.target.value)} placeholder="https://cdn.example.com/manifest.yaml" className="pl-8" disabled={ingesting}/></div><Button type="submit" variant="outline" size="sm" disabled={!manifestUrl.trim() || ingesting}>{ingesting ? <LoadingIndicator size="sm"/> : <Link2 size={14}/>}Import URL</Button></form>
@@ -165,6 +190,6 @@ export function ManifestGraphWorkspace() {
         <ManifestRelationCanvas key={graph.sessionId} graph={graph} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} insights={insights}/>
         <ManifestResourceInspector selected={selected} selectedEdges={selectedEdges} selectedInsights={selectedInsights} nodeByKey={nodeByKey} onSelect={setSelectedKey} className="min-h-[420px] xl:min-h-0"/>
       </div></TabsContent>
-    </Tabs> : <EmptyState className="flex-1" icon={<GitFork/>} title="No manifest dataset loaded" description="Upload YAML, JSON, multiple files, or a Helm chart folder to start with an overview." actions={<><Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}><FileCode2/>Choose files</Button><Button variant="outline" size="sm" onClick={() => folderInput.current?.click()}><FolderOpen/>Choose folder</Button></>} />}
+    </Tabs> : <EmptyState className="flex-1" icon={<GitFork/>} title="No manifest dataset loaded" description="Upload YAML, JSON, multiple files, or a Helm chart folder to start with an overview." actions={<>{isInsideVsCode && workspaceFiles.length > 0 && <Button size="sm" onClick={() => void ingest('workspace', workspaceFiles)}><FileCode2 size={14}/>Load {workspaceFiles.length} Workspace Manifests</Button>}<Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}><FileCode2 size={14}/>Choose files</Button><Button variant="outline" size="sm" onClick={() => folderInput.current?.click()}><FolderOpen size={14}/>Choose folder</Button></>} />}
   </div></div>;
 }

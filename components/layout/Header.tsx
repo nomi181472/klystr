@@ -330,12 +330,63 @@ export function Header({
                 </SelectContent>
               </Select>
             </label>
-            <label className="block text-xs text-muted-foreground">Cluster URL
-              <Input disabled={draftSettings.mode === 'mock' || connecting} value={draftSettings.clusterUrl} onChange={event => updateDraftSettings({ clusterUrl: event.target.value })} placeholder="https://10.0.0.10:6443" className="mt-1 bg-muted border-border" />
-            </label>
-            <label className="block text-xs text-muted-foreground">Bearer Token
-              <Input disabled={draftSettings.mode === 'mock' || connecting} type="password" value={draftSettings.token ?? ''} onChange={event => updateDraftSettings({ token: event.target.value })} placeholder="Kubernetes bearer token" className="mt-1 bg-muted border-border font-mono text-xs" />
-            </label>
+            {draftSettings.mode === 'live' && (
+              <>
+                <label className="block text-xs text-muted-foreground">Kubernetes Environment
+                  <Select
+                    value={draftSettings.environment ?? 'default'}
+                    onValueChange={value => {
+                      if (value) {
+                        updateDraftSettings({
+                          environment: value as ConnectionSettings['environment'],
+                          // Clear token/url when using local environment
+                          clusterUrl: value === 'custom' ? draftSettings.clusterUrl : '',
+                          token: value === 'custom' ? draftSettings.token : '',
+                        });
+                      }
+                    }}
+                    disabled={connecting}
+                  >
+                    <SelectTrigger className="mt-1 w-full h-8 bg-muted border-border text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Auto-Detect (~/.kube/config / Minikube / kind)</SelectItem>
+                      <SelectItem value="microk8s">MicroK8s (microk8s config)</SelectItem>
+                      <SelectItem value="k3s">K3s (/etc/rancher/k3s/k3s.yaml)</SelectItem>
+                      <SelectItem value="custom">Custom Kubeconfig Path / Remote URL</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+
+                {draftSettings.environment === 'custom' ? (
+                  <>
+                    <label className="block text-xs text-muted-foreground">Kubeconfig File / Directory Path
+                      <Input
+                        disabled={connecting}
+                        value={draftSettings.kubeconfigPath ?? ''}
+                        onChange={event => updateDraftSettings({ kubeconfigPath: event.target.value })}
+                        placeholder="/path/to/kubeconfig or directory"
+                        className="mt-1 bg-muted border-border"
+                      />
+                    </label>
+                    <div className="relative my-2 text-center text-[10px] text-muted-foreground">
+                      <span className="bg-card px-2">OR Remote Cluster</span>
+                    </div>
+                    <label className="block text-xs text-muted-foreground">Cluster URL
+                      <Input disabled={connecting} value={draftSettings.clusterUrl ?? ''} onChange={event => updateDraftSettings({ clusterUrl: event.target.value })} placeholder="https://10.0.0.10:6443" className="mt-1 bg-muted border-border" />
+                    </label>
+                    <label className="block text-xs text-muted-foreground">Bearer Token
+                      <Input disabled={connecting} type="password" value={draftSettings.token ?? ''} onChange={event => updateDraftSettings({ token: event.target.value })} placeholder="Kubernetes bearer token" className="mt-1 bg-muted border-border font-mono text-xs" />
+                    </label>
+                  </>
+                ) : (
+                  <div className="rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground">Local Cluster Connection:</span> Uses your local cluster credentials directly. Zero IP, port, or token configuration required.
+                  </div>
+                )}
+              </>
+            )}
             <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/40 px-3 py-2.5">
               <div>
                 <label htmlFor="skip-tls-verification" className="text-xs font-medium text-foreground">Skip TLS verification</label>

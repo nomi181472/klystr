@@ -1,0 +1,147 @@
+{
+  "name": "klystr",
+  "displayName": "Klystr - Kubernetes Operations & Topology",
+  "description": "Visual Kubernetes resource topology, RBAC inspection, manifest analysis, and cluster security in VS Code.",
+  "version": "0.1.0",
+  "publisher": "klystr",
+  "author": {
+    "name": "Klystr Team"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nomi181472/klystr"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "DevOps",
+    "Other"
+  ],
+  "keywords": [
+    "kubernetes",
+    "k8s",
+    "topology",
+    "rbac",
+    "manifests",
+    "cluster",
+    "devops"
+  ],
+  "icon": "assets/icon.png",
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "klystr.openDashboard",
+        "title": "Open Kubernetes Workspace",
+        "category": "Klystr",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "klystr.refreshClusters",
+        "title": "Refresh Clusters & Contexts",
+        "category": "Klystr",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "klystr.switchContext",
+        "title": "Switch Active Context",
+        "category": "Klystr",
+        "icon": "$(server-process)"
+      },
+      {
+        "command": "klystr.scanWorkspaceManifests",
+        "title": "Scan Workspace Manifests",
+        "category": "Klystr",
+        "icon": "$(files)"
+      },
+      {
+        "command": "klystr.openManifests",
+        "title": "Open Manifest Visibility",
+        "category": "Klystr",
+        "icon": "$(type-hierarchy)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "klystr-sidebar",
+          "title": "Klystr",
+          "icon": "assets/klystr.svg"
+        }
+      ]
+    },
+    "views": {
+      "klystr-sidebar": [
+        {
+          "id": "klystr.clustersView",
+          "name": "Clusters & Contexts"
+        },
+        {
+          "id": "klystr.quickActionsView",
+          "name": "Quick Actions"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "klystr.refreshClusters",
+          "when": "view == klystr.clustersView",
+          "group": "navigation"
+        },
+        {
+          "command": "klystr.openDashboard",
+          "when": "view == klystr.clustersView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "klystr.switchContext",
+          "when": "view == klystr.clustersView && viewItem == contextItem",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "klystr.scanWorkspaceManifests",
+          "when": "resourceExtname =~ /\\.(ya?ml)$/",
+          "group": "klystr"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "klystr.scanWorkspaceManifests",
+          "when": "resourceExtname =~ /\\.(ya?ml)$/",
+          "group": "klystr"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Klystr",
+      "properties": {
+        "klystr.projectPath": {
+          "type": "string",
+          "default": "/home/noman/projects/klystr",
+          "description": "Path to Klystr standalone or project root directory."
+        },
+        "klystr.autoScanManifests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan open workspace for Kubernetes YAML manifests and watch for file changes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package"
+  }
+}

@@ -24,8 +24,22 @@ export async function POST(request: Request) {
   let provisionalId: string | undefined;
   try {
     const settings = await request.json() as Partial<ConnectionSettings>;
-    const connection = settings.token?.trim() ? registerConnection(settings) : reuseConnection(settings);
-    provisionalId = settings.token?.trim() ? connection.connectionId : undefined;
+    let connection: ConnectionSettings;
+
+    if (settings.clusterUrl && settings.token?.trim()) {
+      connection = registerConnection(settings);
+      provisionalId = connection.connectionId;
+    } else if (settings.connectionId && settings.connectionId !== 'local-kubeconfig') {
+      connection = reuseConnection(settings);
+    } else {
+      connection = {
+        mode: 'live',
+        connectionId: 'local-kubeconfig',
+        environment: settings.environment || 'default',
+        kubeconfigPath: settings.kubeconfigPath,
+        contextName: settings.contextName,
+      };
+    }
     const config = createKubeConfig(connection);
     const versionApi = config.makeApiClient(k8s.VersionApi);
     const authorization = config.makeApiClient(k8s.AuthorizationV1Api);
