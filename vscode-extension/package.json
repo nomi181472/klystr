@@ -2,7 +2,7 @@
   "name": "klystr",
   "displayName": "Klystr - Kubernetes Operations & Topology",
   "description": "Visual Kubernetes resource topology, RBAC inspection, manifest analysis, and cluster security in VS Code.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "klystr",
   "author": {
     "name": "Klystr Team"
@@ -17,7 +17,6 @@
   },
   "categories": [
     "Visualization",
-    "DevOps",
     "Other"
   ],
   "keywords": [
@@ -128,7 +127,7 @@
       "properties": {
         "klystr.projectPath": {
           "type": "string",
-          "default": "/home/noman/projects/klystr",
+          "default": "",
           "description": "Path to Klystr standalone or project root directory."
         },
         "klystr.autoScanManifests": {

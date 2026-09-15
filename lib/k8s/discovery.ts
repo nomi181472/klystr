@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import * as k8s from '@kubernetes/client-node';
 import type { K8sKind } from '@/config/resource-types';
@@ -532,6 +534,50 @@ export function kubernetesErrorStatus(error: any): number | undefined {
   return typeof value === 'string' ? Number(value) : value;
 }
 
+export interface DescribedKubeConfig {
+  endpoint?: string;
+  context?: string;
+  user?: string;
+  cluster?: string;
+  configSource: string;
+}
+
+export function describeKubeConfig(
+  config: k8s.KubeConfig,
+  settings?: Partial<ConnectionSettings>,
+): DescribedKubeConfig {
+  const currentContext = config.getCurrentContext();
+  const clusterObj = config.getCurrentCluster();
+  let configSource = 'default (~/.kube/config)';
+  if (settings?.clusterUrl) {
+    configSource = 'remote endpoint';
+  } else if (settings?.kubeconfigContent) {
+    configSource = settings.kubeconfigFileName ? `uploaded: ${settings.kubeconfigFileName}` : 'uploaded kubeconfig';
+  } else if (settings?.environment === 'microk8s') {
+    configSource = 'microk8s config';
+  } else if (settings?.environment === 'k3s') {
+    configSource = '/etc/rancher/k3s/k3s.yaml';
+  } else if (settings?.kubeconfigPath) {
+    configSource = settings.kubeconfigPath;
+  }
+
+  return {
+    endpoint: clusterObj?.server,
+    context: currentContext,
+    user: config.getCurrentUser()?.name,
+    cluster: clusterObj?.name,
+    configSource,
+  };
+}
+
+function resolveKubeconfigPath(p: string): string {
+  const trimmed = p.trim();
+  if (trimmed.startsWith('~/') || trimmed === '~') {
+    return join(homedir(), trimmed.slice(1));
+  }
+  return trimmed;
+}
+
 export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.KubeConfig {
   const kubeConfig = new k8s.KubeConfig();
 
@@ -560,28 +606,73 @@ export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.Ku
     }
   }
 
-  // 1. Custom Kubeconfig path provided by user
-  if (settings?.kubeconfigPath && existsSync(settings.kubeconfigPath)) {
-    logger.info('loading custom kubeconfig path', { path: settings.kubeconfigPath });
-    kubeConfig.loadFromFile(settings.kubeconfigPath);
+  // 1. Uploaded Kubeconfig content (file upload or memory)
+  if (settings?.kubeconfigContent) {
+    logger.info('loading kubeconfig from uploaded content', { fileName: settings.kubeconfigFileName });
+    try {
+      kubeConfig.loadFromString(settings.kubeconfigContent);
+    } catch (err: any) {
+      throw new Error(`Failed to parse uploaded kubeconfig: ${err?.message || 'Invalid YAML or kubeconfig format'}`);
+    }
   }
-  // 2. K3s default configuration
-  else if (settings?.environment === 'k3s' && existsSync('/etc/rancher/k3s/k3s.yaml')) {
-    logger.info('loading k3s kubeconfig');
-    kubeConfig.loadFromFile('/etc/rancher/k3s/k3s.yaml');
+  // 2. Custom Kubeconfig path provided by user
+  else if ((settings?.environment === 'custom' || settings?.environment === 'kubeconfig') && settings?.kubeconfigPath) {
+    const resolvedPath = resolveKubeconfigPath(settings.kubeconfigPath);
+    if (!existsSync(resolvedPath)) {
+      throw new Error(`Kubeconfig file does not exist at "${settings.kubeconfigPath}".`);
+    }
+    logger.info('loading custom kubeconfig path', { path: resolvedPath });
+    kubeConfig.loadFromFile(resolvedPath);
+  } else if (settings?.kubeconfigPath) {
+    const resolvedPath = resolveKubeconfigPath(settings.kubeconfigPath);
+    if (existsSync(resolvedPath)) {
+      logger.info('loading custom kubeconfig path', { path: resolvedPath });
+      kubeConfig.loadFromFile(resolvedPath);
+    }
   }
-  // 3. Standard local default (~/.kube/config or KUBECONFIG env or microk8s)
+  // 3. MicroK8s explicit selection
+  else if (settings?.environment === 'microk8s') {
+    logger.info('loading microk8s kubeconfig');
+    try {
+      const yaml = execSync('microk8s config', { encoding: 'utf-8', timeout: 5000 });
+      kubeConfig.loadFromString(yaml);
+    } catch (err: any) {
+      const stderr = err?.stderr ? String(err.stderr).trim() : '';
+      const message = err?.message ?? '';
+      throw new Error(`Failed to load MicroK8s configuration (${stderr || message || 'command failed'}). Ensure MicroK8s is installed and running ('microk8s status'), and your user has permission ('sudo usermod -a -G microk8s $USER').`);
+    }
+  }
+  // 3. K3s default configuration
+  else if (settings?.environment === 'k3s') {
+    const k3sDefaultPath = '/etc/rancher/k3s/k3s.yaml';
+    if (!existsSync(k3sDefaultPath)) {
+      throw new Error(`K3s kubeconfig not found at "${k3sDefaultPath}". Ensure K3s is installed and running, or specify a custom kubeconfig path.`);
+    }
+    try {
+      logger.info('loading k3s kubeconfig');
+      kubeConfig.loadFromFile(k3sDefaultPath);
+    } catch (err: any) {
+      throw new Error(`Failed to read K3s kubeconfig at "${k3sDefaultPath}": ${err?.message ?? 'Permission denied'}. You may need: 'sudo chmod 644 ${k3sDefaultPath}'`);
+    }
+  }
+  // 4. Standard local default (~/.kube/config or KUBECONFIG env or microk8s fallback)
   else {
+    let loaded = false;
     try {
       kubeConfig.loadFromDefault();
+      loaded = true;
     } catch (err) {
-      // If default fails, check microk8s config CLI
+      // If default fails, check microk8s config CLI as fallback
       try {
-        const yaml = execSync('microk8s config', { encoding: 'utf-8', timeout: 3000 });
+        const yaml = execSync('microk8s config', { encoding: 'utf-8', timeout: 5000 });
         kubeConfig.loadFromString(yaml);
+        loaded = true;
       } catch {
         logger.warn('could not load default kubeconfig', { error: String(err) });
       }
+    }
+    if (!loaded && !settings?.clusterUrl) {
+      throw new Error('No local Kubernetes configuration found. Ensure ~/.kube/config exists or select a specific environment (MicroK8s, K3s, Custom).');
     }
   }
 
@@ -592,6 +683,13 @@ export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.Ku
       kubeConfig.setCurrentContext(targetContext);
     } catch {
       // ignore
+    }
+  }
+
+  // Apply skipTlsVerify if requested across all clusters
+  if (settings?.skipTlsVerify) {
+    for (const cluster of kubeConfig.clusters) {
+      (cluster as { skipTLSVerify?: boolean }).skipTLSVerify = true;
     }
   }
 

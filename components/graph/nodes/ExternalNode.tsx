@@ -14,7 +14,7 @@ function ExternalNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as ExternalNodeData;
 
   return (
-    <div className="relative" style={{ minWidth: 180, opacity: nodeData.dimmed ? 0.34 : 1 }}>
+    <div className="relative" style={{ width: 270, minWidth: 270, maxWidth: 270, opacity: nodeData.dimmed ? 0.34 : 1 }}>
       <div
         className="rounded-lg border px-3 py-2.5 transition-all duration-200"
         style={{

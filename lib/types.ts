@@ -248,9 +248,59 @@ export interface ConnectionSettings {
   connectionId?: string;
   token?: string;
   skipTlsVerify?: boolean;
-  environment?: 'default' | 'microk8s' | 'k3s' | 'custom';
+  environment?: 'default' | 'microk8s' | 'k3s' | 'custom' | 'kubeconfig';
   kubeconfigPath?: string;
+  kubeconfigContent?: string;
+  kubeconfigFileName?: string;
   contextName?: string;
+}
+
+export type ConnectionFailureCategory =
+  | 'invalid-request'
+  | 'network'
+  | 'timeout'
+  | 'tls'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'config-error'
+  | 'unknown';
+
+export interface ConnectionErrorInfo {
+  category: ConnectionFailureCategory;
+  message: string;
+  detail?: string;
+  targetEndpoint?: string;
+  environment?: ConnectionSettings['environment'];
+  contextName?: string;
+  configSource?: string;
+  suggestions?: string[];
+  status?: number;
+}
+
+export interface ConnectionTestSuccess {
+  ok: true;
+  connection: ConnectionSettings;
+  version: string;
+  namespaceListAllowed: boolean;
+  namespaceListReason?: string;
+  targetEndpoint?: string;
+  configSource?: string;
+}
+
+export interface ConnectionTestFailure extends ConnectionErrorInfo {
+  ok: false;
+  error: string;
+}
+
+export type ConnectionTestResult = ConnectionTestSuccess | ConnectionTestFailure;
+
+export class ConnectionError extends Error {
+  info: ConnectionErrorInfo;
+  constructor(info: ConnectionErrorInfo) {
+    super(info.message || 'Unable to register the cluster connection.');
+    this.name = 'ConnectionError';
+    this.info = info;
+  }
 }
 
 

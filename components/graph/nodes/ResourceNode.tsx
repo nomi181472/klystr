@@ -307,7 +307,7 @@ function ResourceNodeComponent({ data, id, selected }: NodeProps) {
     <>
       <div
         className="group relative cursor-pointer"
-        style={{ minWidth: 220, maxWidth: 280, opacity: nodeData.dimmed ? 0.34 : 1 }}
+        style={{ width: 270, minWidth: 270, maxWidth: 270, opacity: nodeData.dimmed ? 0.34 : 1 }}
         onContextMenu={onContextMenu}
       >
         <div

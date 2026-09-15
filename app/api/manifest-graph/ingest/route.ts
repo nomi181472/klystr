@@ -2,6 +2,7 @@ import { ingestFiles } from '@/lib/manifest-graph/engine';
 import { resolveHelmCharts } from '@/lib/manifest-graph/helm';
 import { fetchRemoteManifest } from '@/lib/manifest-graph/remote';
 import { createSession } from '@/lib/manifest-graph/store';
+import { scanDirectoryForManifests } from '@/lib/manifest-graph/fs-scanner';
 import type { IngestEvent, UploadedManifestFile } from '@/lib/manifest-graph/types';
 
 export const runtime = 'nodejs';
@@ -12,13 +13,19 @@ export async function POST(request: Request) {
   let uploaded: UploadedManifestFile[];
   if (request.headers.get('content-type')?.includes('application/json')) {
     try {
-      const payload = await request.json() as { url?: unknown; files?: UploadedManifestFile[] };
-      if (Array.isArray(payload.files) && payload.files.length > 0) {
+      const payload = await request.json() as { url?: unknown; files?: UploadedManifestFile[]; source?: string; directory?: string };
+      if (payload.source === 'current-directory') {
+        const scan = await scanDirectoryForManifests(payload.directory);
+        if (scan.files.length === 0) {
+          return Response.json({ error: `No Kubernetes manifests found in directory: ${scan.directory}` }, { status: 404 });
+        }
+        uploaded = scan.files;
+      } else if (Array.isArray(payload.files) && payload.files.length > 0) {
         uploaded = payload.files;
       } else if (typeof payload.url === 'string' && payload.url.trim()) {
         uploaded = [await fetchRemoteManifest(payload.url)];
       } else {
-        throw new Error('Enter a manifest URL or provide manifest files.');
+        throw new Error('Enter a manifest URL, provide manifest files, or specify current-directory.');
       }
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : 'The manifest payload could not be loaded.' }, { status: 400 });

@@ -20,7 +20,8 @@
     "lint": "eslint",
     "extension:build": "node vscode-extension/esbuild.mjs",
     "extension:watch": "node vscode-extension/esbuild.mjs --watch",
-    "extension:package": "cd vscode-extension && npx --yes @vscode/vsce package --no-git-tag-version"
+    "extension:package": "cd vscode-extension && npx --yes @vscode/vsce package --no-git-tag-version",
+    "extension:package:bundle": "./scripts/package-extension-bundle.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

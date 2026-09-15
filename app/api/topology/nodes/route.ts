@@ -24,10 +24,10 @@ async function handleNodes(request: Request) {
     if (request.method === 'POST') {
       settings = await request.json().catch(() => undefined);
     }
-    if (settings?.mode === 'mock') {
+    if (settings?.mode === 'mock' && process.env.KLYSTR_DISABLE_MOCK !== 'true') {
       return NextResponse.json({ topologyNodes: MOCK_TOPOLOGY_NODES, warnings: [], contextName: 'dev-cluster' });
     }
-    if (settings?.mode !== 'live') return NextResponse.json({ error: 'A valid connection mode is required.' }, { status: 400 });
+    if (settings?.mode !== 'live' && process.env.KLYSTR_DISABLE_MOCK !== 'true') return NextResponse.json({ error: 'A valid connection mode is required.' }, { status: 400 });
 
     const discovery = await discoverLiveNamespaces(requestedContext, settings);
     const nodeFailed = discovery.topologyNodes.length === 0

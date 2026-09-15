@@ -7,7 +7,7 @@ import { useConnectionStore } from '@/stores/connection-store';
 import { useDiscoveryStore } from '@/stores/discovery-store';
 import { useFilterStore } from '@/stores/filter-store';
 import { useGraphStore } from '@/stores/graph-store';
-import type { ConnectionSettings, K8sContext } from '@/lib/types';
+import { ConnectionError, type ConnectionErrorInfo, type ConnectionSettings, type K8sContext } from '@/lib/types';
 
 /**
  * SSR-safe wrapper around Header.
@@ -51,8 +51,31 @@ export function WorkspaceHeader() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
-      const payload = await response.json() as { connection?: ConnectionSettings; error?: string };
-      if (!response.ok || !payload.connection) throw new Error(payload.error ?? 'Unable to register the cluster connection.');
+      const payload = await response.json() as {
+        ok?: boolean;
+        connection?: ConnectionSettings;
+        category?: ConnectionErrorInfo['category'];
+        error?: string;
+        message?: string;
+        detail?: string;
+        targetEndpoint?: string;
+        environment?: ConnectionSettings['environment'];
+        contextName?: string;
+        configSource?: string;
+        suggestions?: string[];
+      };
+      if (!response.ok || !payload.connection) {
+        throw new ConnectionError({
+          category: payload.category || 'unknown',
+          message: payload.message || payload.error || 'Unable to register the cluster connection.',
+          detail: payload.detail,
+          targetEndpoint: payload.targetEndpoint,
+          environment: payload.environment,
+          contextName: payload.contextName,
+          configSource: payload.configSource,
+          suggestions: payload.suggestions,
+        });
+      }
       appliedSettings = payload.connection;
       if (connectionSettings.connectionId && connectionSettings.connectionId !== appliedSettings.connectionId) {
         void fetch(`/api/connections?connectionId=${encodeURIComponent(connectionSettings.connectionId)}`, { method: 'DELETE' });

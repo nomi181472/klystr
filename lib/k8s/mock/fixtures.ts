@@ -255,7 +255,7 @@ export const MOCK_RESOURCES: K8sResource[] = [
         { name: 'MONGO_URI', value: 'mongodb://mongo.database.svc.cluster.local:27017/orders' },
         { name: 'KAFKA_BROKERS', value: 'kafka-0.kafka-headless.database.svc.cluster.local:9092' },
         { name: 'USER_SERVICE_URL', value: 'http://user-service.default.svc.cluster.local:3000' },
-        { name: 'NOTIFICATION_URL', value: 'https://hooks.slack.com/services/T00000/B00000/XXXX' },
+        { name: 'NOTIFICATION_URL', value: 'https://notifications.internal/webhook/alerts' },
       ],
       volumeMounts: [],
     }],

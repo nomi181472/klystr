@@ -40,7 +40,7 @@ async function handleGraph(request: Request) {
     if (settings?.mode !== 'live' && settings?.mode !== 'mock') {
       return NextResponse.json({ error: 'A valid connection mode is required.' }, { status: 400 });
     }
-    const live = settings.mode === 'live';
+    const live = settings.mode === 'live' || process.env.KLYSTR_DISABLE_MOCK === 'true';
     logger.info('request received', {
       method: request.method,
       mode: live ? 'live' : 'mock',
@@ -52,9 +52,16 @@ async function handleGraph(request: Request) {
     if (phase === 'namespaces') {
       const discovery = live
         ? await discoverLiveNamespaces(requestedContext, settings)
+        : process.env.KLYSTR_DISABLE_MOCK === 'true'
+        ? {
+            namespaces: [],
+            topologyNodes: [],
+            warnings: [{ type: 'info' as const, resourceType: 'Cluster', message: 'No Kubernetes cluster connected.' }],
+            contextName: requestedContext ?? 'none',
+          }
         : {
             namespaces: MOCK_RESOURCES.filter(resource => resource.kind === 'Namespace').map(resource => resource.name).sort(),
-          topologyNodes: MOCK_TOPOLOGY_NODES,
+            topologyNodes: MOCK_TOPOLOGY_NODES,
             warnings: [],
             contextName: requestedContext ?? 'dev-cluster',
           };
@@ -80,7 +87,8 @@ async function handleGraph(request: Request) {
     const discovered = live
       ? await discoverLiveResources(requestedContext, settings, phase === 'namespace' ? { namespaces, kinds: resourceKinds } : undefined)
       : null;
-    const resources = (discovered?.resources ?? MOCK_RESOURCES).filter(resource => {
+    const fallbackResources = process.env.KLYSTR_DISABLE_MOCK === 'true' ? [] : MOCK_RESOURCES;
+    const resources = (discovered?.resources ?? fallbackResources).filter(resource => {
       if (phase !== 'namespace') return true;
       return resource.namespace !== null && namespaces.includes(resource.namespace) && resourceKinds.includes(resource.kind);
     }).map(resource => {

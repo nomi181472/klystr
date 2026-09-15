@@ -142,3 +142,11 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 todos/
+
+# VS Code Extension Build & Bundled Server
+*.vsix
+vscode-extension/server/
+
+# Test Results & Temp Artifacts
+test-results/
+.gemini-graph-data.json

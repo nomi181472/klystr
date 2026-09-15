@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
-import { RefreshCw, PanelLeftClose, PanelLeftOpen, AlertTriangle, Settings, Sun, Moon, Timer, Database, Server, X } from 'lucide-react';
+import { RefreshCw, PanelLeftClose, PanelLeftOpen, AlertTriangle, Settings, Sun, Moon, Timer, Database, Server, X, UploadCloud, FileCode, FolderOpen, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -15,8 +15,10 @@ import {
 import { useUIStore } from '@/stores/ui-store';
 import { useDiscoveryStore } from '@/stores/discovery-store';
 import { useFilterStore } from '@/stores/filter-store';
-import type { ConnectionSettings } from '@/lib/types';
+import { isVsCodeEnvironment } from '@/stores/connection-store';
+import type { ConnectionErrorInfo, ConnectionSettings } from '@/lib/types';
 import type { DiscoveryWarning } from '@/lib/types';
+import { ConnectionErrorCard } from '@/components/layout/ConnectionErrorCard';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -61,10 +63,11 @@ export function Header({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSettings, setDraftSettings] = useState(connectionSettings);
   const [connecting, setConnecting] = useState(false);
-  const [connectionError, setConnectionError] = useState<string>();
+  const [connectionErrorInfo, setConnectionErrorInfo] = useState<ConnectionErrorInfo | null>(null);
   const [warningsOpen, setWarningsOpen] = useState(false);
   const [warningNotificationOpen, setWarningNotificationOpen] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(false);
+  const inVsCode = isVsCodeEnvironment();
   const lastWarningSignature = useRef('');
   const { setTheme } = useTheme();
 
@@ -85,23 +88,147 @@ export function Header({
     return () => window.clearTimeout(timer);
   }, [warnings]);
 
+  const [kubeconfigTab, setKubeconfigTab] = useState<'path' | 'upload'>(
+    connectionSettings.kubeconfigContent ? 'upload' : 'path'
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [draftContexts, setDraftContexts] = useState<{ name: string; cluster: string; isActive: boolean }[]>([]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.command === 'kubeconfigFileSelected' && event.data.filePath) {
+        updateDraftSettings({
+          environment: 'kubeconfig',
+          kubeconfigPath: event.data.filePath,
+          kubeconfigContent: undefined,
+          kubeconfigFileName: undefined,
+        });
+        setKubeconfigTab('path');
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen || draftSettings.mode !== 'live') {
+      setDraftContexts([]);
+      return;
+    }
+    const env = draftSettings.environment ?? 'default';
+    if (env === 'custom' && !draftSettings.clusterUrl) {
+      setDraftContexts([]);
+      return;
+    }
+    if (env === 'kubeconfig' && !draftSettings.kubeconfigPath && !draftSettings.kubeconfigContent) {
+      setDraftContexts([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetch('/api/contexts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draftSettings),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (!cancelled && data.contexts && Array.isArray(data.contexts)) {
+            setDraftContexts(data.contexts);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setDraftContexts([]);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    settingsOpen,
+    draftSettings.mode,
+    draftSettings.environment,
+    draftSettings.kubeconfigPath,
+    draftSettings.kubeconfigContent,
+    draftSettings.clusterUrl,
+  ]);
+
+  const handleFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const content = e.target?.result as string;
+      updateDraftSettings({
+        environment: 'kubeconfig',
+        kubeconfigContent: content,
+        kubeconfigFileName: file.name,
+        kubeconfigPath: undefined,
+        clusterUrl: '',
+        token: '',
+      });
+      setKubeconfigTab('upload');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = '';
+  };
+
+  const handleBrowseKubeconfig = () => {
+    if (typeof window !== 'undefined' && window.parent !== window) {
+      window.parent.postMessage({ command: 'selectKubeconfigFile' }, '*');
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleClearUploadedFile = () => {
+    updateDraftSettings({
+      kubeconfigContent: undefined,
+      kubeconfigFileName: undefined,
+    });
+    setKubeconfigTab('path');
+  };
+
   const updateDraftSettings = (patch: Partial<ConnectionSettings>) =>
     setDraftSettings(current => ({ ...current, ...patch }));
 
   const openSettings = (patch?: Partial<ConnectionSettings>) => {
-    setDraftSettings({ ...connectionSettings, ...patch });
-    setConnectionError(undefined);
+    const next = { ...connectionSettings, ...patch };
+    setDraftSettings(next);
+    setKubeconfigTab(next.kubeconfigContent ? 'upload' : 'path');
+    setConnectionErrorInfo(null);
     setSettingsOpen(true);
   };
 
-  const connect = async () => {
+  const connect = async (overrideSettings?: Partial<ConnectionSettings>) => {
     setConnecting(true);
-    setConnectionError(undefined);
+    setConnectionErrorInfo(null);
+    const settingsToApply = overrideSettings ? { ...draftSettings, ...overrideSettings } : draftSettings;
     try {
-      await onConnectionApply(draftSettings);
+      await onConnectionApply(settingsToApply);
       setSettingsOpen(false);
-    } catch (error) {
-      setConnectionError(error instanceof Error ? error.message : 'Unable to connect to Kubernetes.');
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'info' in error && error.info) {
+        setConnectionErrorInfo(error.info as ConnectionErrorInfo);
+      } else {
+        setConnectionErrorInfo({
+          category: 'unknown',
+          message: error instanceof Error ? error.message : 'Unable to connect to Kubernetes.',
+        });
+      }
     } finally {
       setConnecting(false);
     }
@@ -164,7 +291,7 @@ export function Header({
         )}
 
         {/* Root data source selector */}
-        <Select value={connectionSettings.mode} onValueChange={value => value && void switchSource(value as ConnectionSettings['mode'])} disabled={connecting}>
+        <Select value={connectionSettings.mode} onValueChange={value => value && void switchSource(value as ConnectionSettings['mode'])} disabled={connecting || inVsCode}>
           <SelectTrigger className="h-9 min-w-40 rounded-lg bg-muted/45 px-3 shadow-xs" aria-label="Change application data source">
             <span className={`size-2 rounded-full ${connectionSettings.mode === 'live' ? 'bg-success' : 'bg-info'}`}/>
             <SelectValue className="sr-only"/>
@@ -175,10 +302,12 @@ export function Header({
               <span className="grid size-8 place-items-center rounded-lg bg-success/10 text-success-foreground"><Server size={15}/></span>
               <span><span className="block text-sm font-medium">Live cluster</span><span className="block text-[11px] text-muted-foreground">Kubernetes API data</span></span>
             </SelectItem>
-            <SelectItem value="mock" className="rounded-lg py-2.5 pl-2.5">
-              <span className="grid size-8 place-items-center rounded-lg bg-info/10 text-info"><Database size={15}/></span>
-              <span><span className="block text-sm font-medium">Mock data</span><span className="block text-[11px] text-muted-foreground">Safe sample environment</span></span>
-            </SelectItem>
+            {!inVsCode && (
+              <SelectItem value="mock" className="rounded-lg py-2.5 pl-2.5">
+                <span className="grid size-8 place-items-center rounded-lg bg-info/10 text-info"><Database size={15}/></span>
+                <span><span className="block text-sm font-medium">Mock data</span><span className="block text-[11px] text-muted-foreground">Safe sample environment</span></span>
+              </SelectItem>
+            )}
           </SelectContent>
         </Select>
 
@@ -308,13 +437,21 @@ export function Header({
       </Dialog>
 
       <Dialog open={settingsOpen} onOpenChange={open => { if (!connecting) setSettingsOpen(open); }}>
-        <DialogContent className="bg-card border-border text-foreground">
+        <DialogContent className="bg-card border-border text-foreground sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Connection settings</DialogTitle>
             <DialogDescription>Values are sent securely to the server for graph discovery. Tokens are never included in graph data.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {connectionError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">{connectionError}</p>}
+            {connectionErrorInfo && (
+              <ConnectionErrorCard
+                error={connectionErrorInfo}
+                draftSettings={draftSettings}
+                onUpdateDraftSettings={updateDraftSettings}
+                onRetryWithPatch={patch => void connect(patch)}
+                isConnecting={connecting}
+              />
+            )}
             <label className="block text-xs text-muted-foreground">Mode
               <Select
                 value={draftSettings.mode}
@@ -326,7 +463,7 @@ export function Header({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="live">Production / Kubernetes</SelectItem>
-                  <SelectItem value="mock">Demo data</SelectItem>
+                  {!inVsCode && <SelectItem value="mock">Demo data</SelectItem>}
                 </SelectContent>
               </Select>
             </label>
@@ -337,11 +474,12 @@ export function Header({
                     value={draftSettings.environment ?? 'default'}
                     onValueChange={value => {
                       if (value) {
+                        const env = value as ConnectionSettings['environment'];
                         updateDraftSettings({
-                          environment: value as ConnectionSettings['environment'],
-                          // Clear token/url when using local environment
-                          clusterUrl: value === 'custom' ? draftSettings.clusterUrl : '',
-                          token: value === 'custom' ? draftSettings.token : '',
+                          environment: env,
+                          // Clear remote token/url when switching away from custom
+                          clusterUrl: env === 'custom' ? draftSettings.clusterUrl : '',
+                          token: env === 'custom' ? draftSettings.token : '',
                         });
                       }
                     }}
@@ -354,33 +492,227 @@ export function Header({
                       <SelectItem value="default">Auto-Detect (~/.kube/config / Minikube / kind)</SelectItem>
                       <SelectItem value="microk8s">MicroK8s (microk8s config)</SelectItem>
                       <SelectItem value="k3s">K3s (/etc/rancher/k3s/k3s.yaml)</SelectItem>
-                      <SelectItem value="custom">Custom Kubeconfig Path / Remote URL</SelectItem>
+                      <SelectItem value="kubeconfig">Kubeconfig File (Provide Path or Upload File)</SelectItem>
+                      <SelectItem value="custom">Remote Cluster (URL & Token)</SelectItem>
                     </SelectContent>
                   </Select>
                 </label>
 
-                {draftSettings.environment === 'custom' ? (
-                  <>
-                    <label className="block text-xs text-muted-foreground">Kubeconfig File / Directory Path
-                      <Input
-                        disabled={connecting}
-                        value={draftSettings.kubeconfigPath ?? ''}
-                        onChange={event => updateDraftSettings({ kubeconfigPath: event.target.value })}
-                        placeholder="/path/to/kubeconfig or directory"
-                        className="mt-1 bg-muted border-border"
-                      />
-                    </label>
-                    <div className="relative my-2 text-center text-[10px] text-muted-foreground">
-                      <span className="bg-card px-2">OR Remote Cluster</span>
+                {draftSettings.environment === 'kubeconfig' && (
+                  <div className="space-y-2.5 rounded-md border border-border bg-muted/20 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">Kubeconfig Source</span>
+                      <div className="flex items-center rounded-md border border-border bg-muted/60 p-0.5 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setKubeconfigTab('path')}
+                          className={`flex items-center gap-1 rounded px-2 py-0.5 font-medium transition-colors ${
+                            kubeconfigTab === 'path'
+                              ? 'bg-card text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          <FolderOpen size={12} />
+                          <span>File Path</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setKubeconfigTab('upload')}
+                          className={`flex items-center gap-1 rounded px-2 py-0.5 font-medium transition-colors ${
+                            kubeconfigTab === 'upload'
+                              ? 'bg-card text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          <UploadCloud size={12} />
+                          <span>Upload File</span>
+                          {draftSettings.kubeconfigContent && (
+                            <span className="size-1.5 rounded-full bg-emerald-400" />
+                          )}
+                        </button>
+                      </div>
                     </div>
+
+                    {kubeconfigTab === 'path' ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <Input
+                              disabled={connecting}
+                              value={draftSettings.kubeconfigPath ?? ''}
+                              onChange={event => updateDraftSettings({
+                                kubeconfigPath: event.target.value,
+                                kubeconfigContent: undefined,
+                                kubeconfigFileName: undefined,
+                              })}
+                              placeholder="~/.kube/config or /path/to/kubeconfig"
+                              className="bg-muted border-border pr-8 text-xs font-mono h-8"
+                            />
+                            {draftSettings.kubeconfigPath && (
+                              <button
+                                type="button"
+                                onClick={() => updateDraftSettings({ kubeconfigPath: '' })}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                title="Clear path"
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={connecting}
+                            onClick={handleBrowseKubeconfig}
+                            className="h-8 shrink-0 gap-1.5 text-xs bg-muted hover:bg-muted/80 border-border"
+                            title="Browse for kubeconfig file"
+                          >
+                            <FolderOpen size={13} />
+                            <span>Browse</span>
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span>Quick paths:</span>
+                          <button
+                            type="button"
+                            className="underline hover:text-foreground font-mono"
+                            onClick={() => updateDraftSettings({
+                              kubeconfigPath: '~/.kube/config',
+                              kubeconfigContent: undefined,
+                              kubeconfigFileName: undefined,
+                            })}
+                          >
+                            ~/.kube/config
+                          </button>
+                          <span>·</span>
+                          <button
+                            type="button"
+                            className="underline hover:text-foreground font-mono"
+                            onClick={() => updateDraftSettings({
+                              kubeconfigPath: '/etc/kubernetes/admin.conf',
+                              kubeconfigContent: undefined,
+                              kubeconfigFileName: undefined,
+                            })}
+                          >
+                            /etc/kubernetes/admin.conf
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        {draftSettings.kubeconfigContent ? (
+                          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/60 p-2.5">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-400">
+                                <FileCode size={16} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="truncate text-xs font-semibold text-foreground" title={draftSettings.kubeconfigFileName}>
+                                    {draftSettings.kubeconfigFileName ?? 'Uploaded kubeconfig'}
+                                  </span>
+                                  <Badge variant="outline" className="h-4 px-1 text-[9px] border-emerald-500/40 text-emerald-400">
+                                    Loaded
+                                  </Badge>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                  {(draftSettings.kubeconfigContent.length / 1024).toFixed(1)} KB · In-memory
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                title="Replace file"
+                              >
+                                Replace
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleClearUploadedFile}
+                                className="h-7 size-7 p-0 text-muted-foreground hover:text-destructive"
+                                title="Remove uploaded file"
+                              >
+                                <Trash2 size={13} />
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                            onDrop={handleFileDrop}
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border/80 hover:border-primary/60 bg-muted/20 hover:bg-muted/40 p-4 cursor-pointer transition-colors text-center"
+                          >
+                            <div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+                              <UploadCloud size={16} />
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-foreground">
+                                Click to upload or drag &amp; drop kubeconfig
+                              </p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                Supports .yaml, .yml, .config, .conf
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".yaml,.yml,.config,.conf,*"
+                          onChange={handleFileInputChange}
+                          className="hidden"
+                        />
+                      </div>
+                    )}
+
+                    {draftContexts.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-border/60">
+                        <label className="block text-[11px] text-muted-foreground">
+                          Active Context ({draftContexts.length} available in this kubeconfig)
+                        </label>
+                        <Select
+                          value={draftSettings.contextName || draftContexts.find(c => c.isActive)?.name || draftContexts[0]?.name}
+                          onValueChange={value => updateDraftSettings({ contextName: value || undefined })}
+                          disabled={connecting}
+                        >
+                          <SelectTrigger className="h-8 bg-muted border-border text-xs">
+                            <SelectValue placeholder="Select context" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {draftContexts.map(ctx => (
+                              <SelectItem key={ctx.name} value={ctx.name}>
+                                <span className="font-mono">{ctx.name}</span>
+                                {ctx.isActive && <span className="ml-1.5 text-[10px] text-muted-foreground">(current)</span>}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {draftSettings.environment === 'custom' && (
+                  <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
                     <label className="block text-xs text-muted-foreground">Cluster URL
-                      <Input disabled={connecting} value={draftSettings.clusterUrl ?? ''} onChange={event => updateDraftSettings({ clusterUrl: event.target.value })} placeholder="https://10.0.0.10:6443" className="mt-1 bg-muted border-border" />
+                      <Input disabled={connecting} value={draftSettings.clusterUrl ?? ''} onChange={event => updateDraftSettings({ clusterUrl: event.target.value })} placeholder="https://10.0.0.10:6443" className="mt-1 bg-muted border-border h-8 text-xs font-mono" />
                     </label>
                     <label className="block text-xs text-muted-foreground">Bearer Token
-                      <Input disabled={connecting} type="password" value={draftSettings.token ?? ''} onChange={event => updateDraftSettings({ token: event.target.value })} placeholder="Kubernetes bearer token" className="mt-1 bg-muted border-border font-mono text-xs" />
+                      <Input disabled={connecting} type="password" value={draftSettings.token ?? ''} onChange={event => updateDraftSettings({ token: event.target.value })} placeholder="Kubernetes bearer token" className="mt-1 bg-muted border-border font-mono text-xs h-8" />
                     </label>
-                  </>
-                ) : (
+                  </div>
+                )}
+
+                {draftSettings.environment !== 'custom' && draftSettings.environment !== 'kubeconfig' && (
                   <div className="rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
                     <span className="font-medium text-foreground">Local Cluster Connection:</span> Uses your local cluster credentials directly. Zero IP, port, or token configuration required.
                   </div>

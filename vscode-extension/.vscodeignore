@@ -4,3 +4,5 @@ esbuild.mjs
 tsconfig.json
 **/*.map
 AGENTS.md
+!server/**
+!server/node_modules/**

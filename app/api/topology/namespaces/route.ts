@@ -29,10 +29,10 @@ async function handleNamespaces(request: Request) {
       .map(resource => resource.name)
       .sort();
 
-    if (settings?.mode === 'mock') {
+    if (settings?.mode === 'mock' && process.env.KLYSTR_DISABLE_MOCK !== 'true') {
       return NextResponse.json({ namespaces: mockNamespaces, warnings: [], contextName: 'dev-cluster' });
     }
-    if (settings?.mode !== 'live') return NextResponse.json({ error: 'A valid connection mode is required.' }, { status: 400 });
+    if (settings?.mode !== 'live' && process.env.KLYSTR_DISABLE_MOCK !== 'true') return NextResponse.json({ error: 'A valid connection mode is required.' }, { status: 400 });
 
     const discovery = await discoverLiveNamespaces(requestedContext, settings);
     const namespaceFailed = discovery.namespaces.length === 0

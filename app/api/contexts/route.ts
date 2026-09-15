@@ -4,8 +4,10 @@ import { availableContexts, currentContextName } from '@/lib/k8s/discovery';
 import type { ConnectionSettings } from '@/lib/types';
 
 export async function POST(request: Request) {
-  const settings = await request.json() as Partial<ConnectionSettings>;
-  if (settings.mode === 'mock') return NextResponse.json({ contexts: MOCK_CONTEXTS });
+  const settings = (await request.json().catch(() => ({}))) as Partial<ConnectionSettings>;
+  if (settings.mode === 'mock' && process.env.KLYSTR_DISABLE_MOCK !== 'true') {
+    return NextResponse.json({ contexts: MOCK_CONTEXTS });
+  }
   try {
     const active = currentContextName(settings);
     const contexts = availableContexts(settings).map(context => ({
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
       isActive: context.name === active,
     }));
     return NextResponse.json({ contexts });
-  } catch {
-    return NextResponse.json({ contexts: [], error: 'Unable to load kubeconfig contexts' }, { status: 503 });
+  } catch (err: any) {
+    return NextResponse.json({ contexts: [], error: err?.message || 'Unable to load kubeconfig contexts' }, { status: 503 });
   }
 }

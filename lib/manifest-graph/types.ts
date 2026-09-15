@@ -106,4 +106,5 @@ export interface UploadedManifestFile {
   lastModified?: number;
   content: string;
   chartName?: string;
+  size?: number;
 }

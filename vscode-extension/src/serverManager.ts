@@ -74,7 +74,13 @@ export class ServerManager {
   }
 
   private findServerTarget(): { cwd: string; cmd: string; args: string[] } | null {
-    // 1. Check user configured project path
+    // 1. Check bundled server inside extension directory (production / marketplace install)
+    const bundledServer = path.join(this.extensionUri.fsPath, 'server', 'server.js');
+    if (existsSync(bundledServer)) {
+      return { cwd: path.dirname(bundledServer), cmd: 'node', args: ['server.js'] };
+    }
+
+    // 2. Check user configured project path
     const config = vscode.workspace.getConfiguration('klystr');
     const configuredPath = config.get<string>('projectPath');
     if (configuredPath && existsSync(configuredPath)) {
@@ -85,13 +91,13 @@ export class ServerManager {
       return { cwd: configuredPath, cmd: 'npm', args: ['run', 'dev'] };
     }
 
-    // 2. Check if running alongside repo in development
+    // 3. Check if running alongside repo in development
     const devStandalone = path.resolve(this.extensionUri.fsPath, '..', '.next', 'standalone', 'server.js');
     if (existsSync(devStandalone)) {
       return { cwd: path.dirname(devStandalone), cmd: 'node', args: ['server.js'] };
     }
 
-    // 3. Check known default project directory
+    // 4. Check known default project directory
     const knownRepoStandalone = '/home/noman/projects/klystr/.next/standalone/server.js';
     if (existsSync(knownRepoStandalone)) {
       return { cwd: path.dirname(knownRepoStandalone), cmd: 'node', args: ['server.js'] };
@@ -132,6 +138,8 @@ export class ServerManager {
         ...process.env,
         PORT: String(port),
         HOSTNAME: '127.0.0.1',
+        KLYSTR_DISABLE_MOCK: 'true',
+        KLYSTR_EXTENSION_MODE: 'true',
       },
       stdio: 'pipe',
     });

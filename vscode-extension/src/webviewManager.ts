@@ -52,7 +52,8 @@ export class WebviewManager {
       // Ensure silent local server is up
       const serverUrl = await this.serverManager.ensureServerRunning();
       const pathPart = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
-      const fullUrl = `${serverUrl}${pathPart}`;
+      const sep = pathPart.includes('?') ? '&' : '?';
+      const fullUrl = `${serverUrl}${pathPart}${sep}vscode=true&mode=live`;
 
       // Update with embedded view
       if (this.panel) {
@@ -102,6 +103,27 @@ export class WebviewManager {
         case 'openExternal': {
           if (message.url) {
             vscode.env.openExternal(vscode.Uri.parse(message.url));
+          }
+          break;
+        }
+
+        case 'selectKubeconfigFile': {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            canSelectFiles: true,
+            canSelectFolders: false,
+            openLabel: 'Select Kubeconfig File',
+            filters: {
+              'Kubeconfig / YAML': ['yaml', 'yml', 'config', 'conf'],
+              'All Files': ['*'],
+            },
+          });
+          if (uris && uris[0]) {
+            const filePath = uris[0].fsPath;
+            this.sendMessage({
+              command: 'kubeconfigFileSelected',
+              filePath,
+            });
           }
           break;
         }

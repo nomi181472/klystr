@@ -1,12 +1,14 @@
 import type { Node, Edge } from '@xyflow/react';
 import type { NamespaceBoundaryState, TopologyNode } from '@/lib/types';
 
-const NAMESPACE_PADDING = 36;
-const NODE_WIDTH = 220;
+const NAMESPACE_PADDING = 32;
+const NODE_WIDTH = 270;
 const BASE_NODE_HEIGHT = 82;
-const NODE_GAP_X = 28;
-const NODE_GAP_Y = 28;
-const COLS_PER_NAMESPACE = 3;
+const NODE_GAP_Y = 32;
+const ATTACHMENT_WIDTH = 112;
+const ATTACHMENT_DOCK_OVERLAP = 10;
+const ATTACHMENT_OFFSET_X = ATTACHMENT_WIDTH - ATTACHMENT_DOCK_OVERLAP; // 102px
+const ATTACHMENT_MIN_GAP = 28;
 
 interface NamespaceLayoutOptions {
   direction: 'rows' | 'columns';
@@ -15,6 +17,15 @@ interface NamespaceLayoutOptions {
   onLoadNamespace?: (namespace: string) => void;
   onToggleNamespaceMetrics?: (namespace: string) => void;
   topologyNodes?: TopologyNode[];
+}
+
+function computeColumns(count: number): number {
+  if (count <= 1) return 1;
+  if (count === 2) return 2;
+  if (count === 3) return 3;
+  if (count === 4) return 2; // 2x2 grid is balanced and avoids horizontal crowding
+  if (count <= 9) return 3;
+  return 4;
 }
 
 function estimatedNodeHeight(node: Node) {
@@ -26,18 +37,19 @@ function estimatedNodeHeight(node: Node) {
   };
   let height = BASE_NODE_HEIGHT;
   if (data.ports?.length) height += 22;
-  if (data.containers?.length) height += data.containers.length * 54 + 8;
-  else if (data.podMetrics) height += 35;
-  if ((data.attachedServiceCount ?? 0) > 1) height += ((data.attachedServiceCount ?? 1) - 1) * 36;
+  if (data.containers?.length) {
+    height += data.containers.length * 52 + 12;
+  } else if (data.podMetrics) {
+    height += 36;
+  }
+  const attachedCount = data.attachedServiceCount ?? 0;
+  if (attachedCount > 0) {
+    const minHeightForAttachments = 16 + attachedCount * 36;
+    if (minHeightForAttachments > height) {
+      height = minHeightForAttachments;
+    }
+  }
   return height;
-}
-
-function heightsByRow(children: Node[], cols: number) {
-  const rows = Math.ceil(children.length / cols) || 1;
-  return Array.from({ length: rows }, (_, row) => Math.max(
-    BASE_NODE_HEIGHT,
-    ...children.slice(row * cols, (row + 1) * cols).map(estimatedNodeHeight),
-  ));
 }
 
 interface NamespaceEntry {
@@ -45,8 +57,13 @@ interface NamespaceEntry {
   namespace: string;
   nodeLabel: string;
   children: Node[];
+  layoutChildren: Node[];
   state?: NamespaceBoundaryState;
+  cols: number;
+  rows: number;
+  colX: number[];
   rowHeights: number[];
+  rowY: number[];
   width: number;
   height: number;
 }
@@ -56,11 +73,11 @@ function statusCounts(children: Node[]) {
   return Object.fromEntries([...new Set(uniqueChildren.map(child => String(child.data.status ?? 'Unknown')))].map(status => [status, uniqueChildren.filter(child => String(child.data.status ?? 'Unknown') === status).length]));
 }
 
-const OUTER_PADDING = 34;
-const BOUNDARY_GAP = 30;
+const OUTER_PADDING = 32;
+const BOUNDARY_GAP = 36;
 const BOUNDARIES_PER_NODE = 2;
 
-/** Node → namespace → resource hierarchy with stable, fixed boundary identities. */
+/** Node → namespace → resource hierarchy with stable, collision-free geometry. */
 export function computeLayout(
   nodes: Node[],
   edges: Edge[],
@@ -88,21 +105,52 @@ export function computeLayout(
     if (namespace !== 'external') representedNamespaces.add(namespace);
     const orderedChildren = [...children].sort((left, right) => String(left.data.kind ?? '').localeCompare(String(right.data.kind ?? '')) || left.id.localeCompare(right.id));
     const layoutChildren = orderedChildren.filter(child => child.type !== 'serviceAttachment');
-    const cols = Math.min(layoutChildren.length, COLS_PER_NAMESPACE) || 1;
-    const rowHeights = heightsByRow(layoutChildren, cols);
+    const cols = computeColumns(layoutChildren.length);
+    const rows = Math.ceil(layoutChildren.length / cols) || 1;
+
+    const colHasAttachment = Array.from({ length: cols }, (_, c) =>
+      layoutChildren.some((child, idx) => idx % cols === c && ((child.data.attachedServiceCount as number | undefined) ?? 0) > 0)
+    );
+
+    const colX: number[] = [];
+    for (let c = 0; c < cols; c++) {
+      if (c === 0) {
+        colX[c] = colHasAttachment[0] ? NAMESPACE_PADDING + ATTACHMENT_OFFSET_X : NAMESPACE_PADDING;
+      } else {
+        const gap = colHasAttachment[c] ? ATTACHMENT_OFFSET_X + ATTACHMENT_MIN_GAP : 36;
+        colX[c] = colX[c - 1] + NODE_WIDTH + gap;
+      }
+    }
+
+    const rowHeights = Array.from({ length: rows }, (_, r) => {
+      const rowChildren = layoutChildren.slice(r * cols, (r + 1) * cols);
+      return Math.max(BASE_NODE_HEIGHT, ...rowChildren.map(estimatedNodeHeight));
+    });
+
+    const rowY: number[] = [];
+    let currentY = NAMESPACE_PADDING + 46;
+    for (let r = 0; r < rows; r++) {
+      rowY[r] = currentY;
+      currentY += rowHeights[r] + NODE_GAP_Y;
+    }
+
+    const width = Math.max((colX[cols - 1] ?? NAMESPACE_PADDING) + NODE_WIDTH + NAMESPACE_PADDING, 360);
+    const height = Math.max(currentY - NODE_GAP_Y + NAMESPACE_PADDING, 180);
+
     return {
-      id, namespace, nodeLabel, children: orderedChildren,
-      state: namespaceLayout.namespaceStates?.[namespace], rowHeights,
-      width: Math.max(cols * (NODE_WIDTH + NODE_GAP_X) + NAMESPACE_PADDING * 2, 360),
-      height: rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, rowHeights.length - 1) * NODE_GAP_Y + NAMESPACE_PADDING * 2 + 56,
+      id, namespace, nodeLabel, children: orderedChildren, layoutChildren,
+      state: namespaceLayout.namespaceStates?.[namespace],
+      cols, rows, colX, rowHeights, rowY, width, height,
     };
   });
+
   for (const namespace of namespaces) {
     if (representedNamespaces.has(namespace)) continue;
     namespaceEntries.push({
       id: `scope:${encodeURIComponent('Namespaces')}:${encodeURIComponent(namespace)}`,
-      namespace, nodeLabel: 'Namespaces', children: [], state: namespaceLayout.namespaceStates?.[namespace],
-      rowHeights: [BASE_NODE_HEIGHT], width: 360, height: 180,
+      namespace, nodeLabel: 'Namespaces', children: [], layoutChildren: [], state: namespaceLayout.namespaceStates?.[namespace],
+      cols: 1, rows: 1, colX: [NAMESPACE_PADDING], rowHeights: [BASE_NODE_HEIGHT], rowY: [NAMESPACE_PADDING + 46],
+      width: 360, height: 180,
     });
   }
   namespaceEntries.sort((left, right) => left.nodeLabel.localeCompare(right.nodeLabel) || left.namespace.localeCompare(right.namespace));
@@ -136,8 +184,8 @@ export function computeLayout(
     allNodes.push({
       id: nodeId, type: 'nodeGroup',
       position: {
-        x: outerColumnWidths.slice(0, outerColumn).reduce((sum, width) => sum + width + 50, 0),
-        y: outerRowHeights.slice(0, outerRow).reduce((sum, height) => sum + height + 50, 0),
+        x: outerColumnWidths.slice(0, outerColumn).reduce((sum, width) => sum + width + 60, 0),
+        y: outerRowHeights.slice(0, outerRow).reduce((sum, height) => sum + height + 60, 0),
       },
       data: {
         label: nodeEntry.label,
@@ -170,30 +218,30 @@ export function computeLayout(
         },
         style: { width: entry.width, height: entry.height }, zIndex: 0, draggable: true, dragHandle: '.boundary-drag-handle', selectable: false,
       });
-      const layoutChildren = entry.children.filter(child => child.type !== 'serviceAttachment');
-      const cols = Math.min(layoutChildren.length, COLS_PER_NAMESPACE) || 1;
-      layoutChildren.forEach((child, childIndex) => {
-        const childColumn = childIndex % cols;
-        const childRow = Math.floor(childIndex / cols);
+
+      entry.layoutChildren.forEach((child, childIndex) => {
+        const childColumn = childIndex % entry.cols;
+        const childRow = Math.floor(childIndex / entry.cols);
         child.position = {
-          x: NAMESPACE_PADDING + childColumn * (NODE_WIDTH + NODE_GAP_X),
-          y: NAMESPACE_PADDING + 54 + entry.rowHeights.slice(0, childRow).reduce((sum, height) => sum + height + NODE_GAP_Y, 0),
+          x: entry.colX[childColumn] ?? NAMESPACE_PADDING,
+          y: entry.rowY[childRow] ?? (NAMESPACE_PADDING + 46),
         };
         child.zIndex = 5;
         allNodes.push(child);
       });
+
       const attachmentsByPod = new Map<string, number>();
       entry.children.filter(child => child.type === 'serviceAttachment').forEach(attachment => {
         const podId = String(attachment.data.attachedPodId ?? '');
-        const pod = layoutChildren.find(child => child.id === podId);
+        const pod = entry.layoutChildren.find(child => child.id === podId);
         if (!pod) return;
         const attachmentIndex = attachmentsByPod.get(podId) ?? 0;
         attachmentsByPod.set(podId, attachmentIndex + 1);
         attachment.position = {
-          x: pod.position.x - 24,
-          y: pod.position.y + 35 + attachmentIndex * 36,
+          x: pod.position.x - ATTACHMENT_OFFSET_X,
+          y: pod.position.y + 12 + attachmentIndex * 36,
         };
-        attachment.zIndex = 7;
+        attachment.zIndex = 10;
         allNodes.push(attachment);
       });
     });
@@ -201,7 +249,7 @@ export function computeLayout(
 
   const canvasWidth = outerColumnWidths.reduce((sum, width) => sum + width + 60, 0);
   orphans.forEach((node, i) => {
-    node.position = { x: canvasWidth + i * (NODE_WIDTH + NODE_GAP_X), y: 100 };
+    node.position = { x: canvasWidth + i * (NODE_WIDTH + 36), y: 100 };
     allNodes.push(node);
   });
 
