@@ -84,6 +84,15 @@ You can customize Klystr via VS Code Settings (`Ctrl+,` > Search for `Klystr`):
 
 ---
 
+## Releases & Versioning
+
+The VS Code extension follows an independent versioning lifecycle from the root web application:
+* **Version Definition**: Managed in [`package.json`](package.json).
+* **Git Tagging Format**: Uses scoped tags (`vscode-v<version>`, e.g., `vscode-v0.1.1`) to isolate extension releases from web releases.
+* **Packaging & Publishing**: See [RELEASING.md](RELEASING.md) for the complete release, hotfix, and Marketplace publishing guide.
+
+---
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) for details.

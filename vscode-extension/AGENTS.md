@@ -11,4 +11,8 @@
 >    - Workspace Scanner: Uses `vscode.workspace.findFiles` to read Kubernetes YAML manifests from the developer's open workspace, then passes them to `../lib/manifest-graph/engine.ts`.
 > 3. **BUILD & PACKAGING**:
 >    - Bundled with `esbuild.mjs` to produce a lean `dist/extension.js`.
->    - Packaged with `@vscode/vsce package` into a `.vsix` file for distribution on the VS Code Marketplace.
+>    - Packaged with `./scripts/package-extension-bundle.sh` into a self-contained `.vsix` file for distribution on the VS Code Marketplace.
+> 4. **RELEASE ISOLATION & VERSIONING**:
+>    - Extension versions are decoupled from the root `package.json` and maintained exclusively in `vscode-extension/package.json`.
+>    - All Git release tags MUST use the scoped format `vscode-v<version>` (e.g. `vscode-v0.1.1`) to isolate extension releases from web dashboard releases.
+>    - Refer to `RELEASING.md` for complete release instructions.
