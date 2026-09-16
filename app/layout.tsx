@@ -19,7 +19,11 @@ export const metadata: Metadata = {
   description:
     'Overall telemetry and operational visibility across Kubernetes workloads, dependencies, and security posture.',
   icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    icon: [
+      { url: '/icon-light.svg', media: '(prefers-color-scheme: light)', type: 'image/svg+xml' },
+      { url: '/icon-dark.svg', media: '(prefers-color-scheme: dark)', type: 'image/svg+xml' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
     apple: '/icon.svg',
   },
 };

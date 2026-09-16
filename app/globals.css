@@ -167,15 +167,6 @@
   }
 }
 
-@keyframes kube-orbit {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.kube-logo-orbit {
-  animation: kube-orbit 7s linear infinite;
-  transform-origin: 12px 12px;
-}
 
 @keyframes pod-pending {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--warning) 35%, transparent); }
