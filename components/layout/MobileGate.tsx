@@ -149,7 +149,7 @@ export function MobileGate({ children }: MobileGateProps) {
         <div className="w-full max-w-sm flex flex-col items-center text-center gap-6 relative z-10">
           {/* Pulsing Kube Logo */}
           <div className="relative">
-            <div className="absolute -inset-3 rounded-full bg-primary/20 blur-md animate-pulse" />
+            <div className="absolute -inset-3 rounded-2xl bg-primary/20 blur-md animate-pulse" />
             <KubeLogo size="lg" className="relative z-10" />
           </div>
 

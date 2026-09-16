@@ -118,6 +118,12 @@
   --sidebar-accent-foreground: oklch(0.24 0.015 255);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
+
+  /* Brand Logo (Day / Light Mode) */
+  --logo-bg: #ffffff;
+  --logo-fg: #18181b;
+  --logo-border: rgba(0, 0, 0, 0.12);
+  --logo-circle: rgba(24, 24, 27, 0.85);
 }
 
 .dark {
@@ -232,4 +238,10 @@
   --sidebar-accent-foreground: oklch(0.91 0.008 250);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
+
+  /* Brand Logo (Night / Dark Mode) */
+  --logo-bg: #000000;
+  --logo-fg: #ffffff;
+  --logo-border: rgba(255, 255, 255, 0.15);
+  --logo-circle: rgba(255, 255, 255, 0.85);
 }

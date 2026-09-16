@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Square background -->
+  <rect x="0" y="0" width="200" height="200" rx="28" ry="28" fill="#000000"/>
+
+  <!-- Subtle inner border -->
+  <rect x="8" y="8" width="184" height="184" rx="22" ry="22"
+        fill="none" stroke="#FFFFFF" stroke-width="0.6" opacity="0.15"/>
+
+  <!-- Background ring -->
+  <circle cx="100" cy="100" r="78" fill="none" stroke="#FFFFFF" stroke-width="0.8" opacity="0.15">
+    <animate attributeName="r" values="78;82;78" dur="4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.15;0.08;0.15" dur="4s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ============ COMPLETE BRAND CIRCLE — syncs with K completion ============ -->
+  <!-- Subtle brand circle guide track -->
+  <circle cx="100" cy="100" r="72" fill="none" stroke="#FFFFFF" stroke-width="0.8" opacity="0.18"/>
+
+  <!-- Circumference of r=72 is ~452.4. Draws from 12 o'clock (top), holds full, rolls back at 0.75 -->
+  <circle cx="100" cy="100" r="72" fill="none" stroke="#FFFFFF" stroke-width="2.4"
+          stroke-dasharray="452.4" stroke-dashoffset="452.4" stroke-linecap="round"
+          transform="rotate(-90 100 100)" filter="url(#glow)">
+    <animate attributeName="stroke-dashoffset" values="452.4;0;0;452.4"
+             dur="5s" repeatCount="indefinite" keyTimes="0;0.4;0.75;1"/>
+    <animate attributeName="opacity" values="0;1;1;0"
+             dur="5s" repeatCount="indefinite" keyTimes="0;0.2;0.75;1"/>
+  </circle>
+
+  <!-- Subtle inner ring -->
+  <circle cx="100" cy="100" r="55" fill="none" stroke="#FFFFFF" stroke-width="0.5" opacity="0.1">
+    <animate attributeName="r" values="55;58;55" dur="4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.1;0.05;0.1" dur="4s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ============ K LINES ============ -->
+
+  <!-- Upper stem: top node -> center -->
+  <line x1="72" y1="58" x2="72" y2="100"
+        stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"
+        filter="url(#glow)"
+        stroke-dasharray="42" stroke-dashoffset="42">
+    <animate attributeName="stroke-dashoffset" values="42;0;0;42"
+             dur="5s" repeatCount="indefinite" keyTimes="0;0.2;0.75;1"/>
+  </line>
+
+  <!-- Lower stem: center -> bottom node -->
+  <line x1="72" y1="100" x2="72" y2="142"
+        stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"
+        filter="url(#glow)"
+        stroke-dasharray="42" stroke-dashoffset="42">
+    <animate attributeName="stroke-dashoffset" values="42;0;0;42"
+             dur="5s" repeatCount="indefinite" keyTimes="0;0.22;0.75;1"/>
+  </line>
+
+  <!-- Upper arm: center -> upper-right — finishes at 0.4 to match circle -->
+  <line x1="72" y1="100" x2="128" y2="58"
+        stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"
+        filter="url(#glow)"
+        stroke-dasharray="70" stroke-dashoffset="70">
+    <animate attributeName="stroke-dashoffset" values="70;0;0;70"
+             dur="5s" repeatCount="indefinite" keyTimes="0;0.4;0.75;1"/>
+  </line>
+
+  <!-- Lower arm: center -> lower-right — finishes at 0.4 to match circle -->
+  <line x1="72" y1="100" x2="128" y2="142"
+        stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"
+        filter="url(#glow)"
+        stroke-dasharray="70" stroke-dashoffset="70">
+    <animate attributeName="stroke-dashoffset" values="70;0;0;70"
+             dur="5s" repeatCount="indefinite" keyTimes="0;0.4;0.75;1"/>
+  </line>
+
+  <!-- ============ NODES ============ -->
+
+  <!-- Center joint -->
+  <circle cx="72" cy="100" r="5" fill="#FFFFFF" filter="url(#softGlow)">
+    <animate attributeName="opacity" values="0;1;1;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.08;0.85;1"/>
+    <animate attributeName="r" values="0;5;5;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.08;0.85;1"/>
+  </circle>
+
+  <!-- Top of stem -->
+  <circle cx="72" cy="58" r="4" fill="#FFFFFF" filter="url(#softGlow)">
+    <animate attributeName="opacity" values="0;1;1;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.12;0.85;1"/>
+    <animate attributeName="r" values="0;4;4;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.12;0.85;1"/>
+  </circle>
+
+  <!-- Bottom of stem -->
+  <circle cx="72" cy="142" r="4" fill="#FFFFFF" filter="url(#softGlow)">
+    <animate attributeName="opacity" values="0;1;1;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.12;0.85;1"/>
+    <animate attributeName="r" values="0;4;4;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.12;0.85;1"/>
+  </circle>
+
+  <!-- End of upper arm -->
+  <circle cx="128" cy="58" r="4" fill="#FFFFFF" filter="url(#softGlow)">
+    <animate attributeName="opacity" values="0;1;1;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.18;0.85;1"/>
+    <animate attributeName="r" values="0;4;4;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.18;0.85;1"/>
+  </circle>
+
+  <!-- End of lower arm -->
+  <circle cx="128" cy="142" r="4" fill="#FFFFFF" filter="url(#softGlow)">
+    <animate attributeName="opacity" values="0;1;1;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.18;0.85;1"/>
+    <animate attributeName="r" values="0;4;4;0" dur="5s" repeatCount="indefinite" keyTimes="0;0.18;0.85;1"/>
+  </circle>
+
+  <!-- Floating particle 1 -->
+  <circle cx="140" cy="40" r="2" fill="#FFFFFF" opacity="0">
+    <animate attributeName="opacity" values="0;0.6;0" dur="3s" repeatCount="indefinite" begin="0.5s"/>
+    <animate attributeName="cy" values="50;30;50" dur="3s" repeatCount="indefinite" begin="0.5s"/>
+    <animate attributeName="cx" values="130;145;130" dur="3s" repeatCount="indefinite" begin="0.5s"/>
+  </circle>
+
+  <!-- Floating particle 2 -->
+  <circle cx="160" cy="110" r="1.5" fill="#FFFFFF" opacity="0">
+    <animate attributeName="opacity" values="0;0.5;0" dur="3.5s" repeatCount="indefinite" begin="1s"/>
+    <animate attributeName="cy" values="110;95;110" dur="3.5s" repeatCount="indefinite" begin="1s"/>
+    <animate attributeName="cx" values="160;170;160" dur="3.5s" repeatCount="indefinite" begin="1s"/>
+  </circle>
+
+  <!-- Floating particle 3 -->
+  <circle cx="45" cy="80" r="1.8" fill="#FFFFFF" opacity="0">
+    <animate attributeName="opacity" values="0;0.4;0" dur="4s" repeatCount="indefinite" begin="2s"/>
+    <animate attributeName="cy" values="80;65;80" dur="4s" repeatCount="indefinite" begin="2s"/>
+    <animate attributeName="cx" values="45;35;45" dur="4s" repeatCount="indefinite" begin="2s"/>
+  </circle>
+
+  <!-- Pulse ring -->
+  <circle cx="100" cy="100" r="30" fill="none" stroke="#FFFFFF" stroke-width="0.8" opacity="0">
+    <animate attributeName="r" values="30;80;80" dur="4s" repeatCount="indefinite" begin="1.5s"/>
+    <animate attributeName="opacity" values="0.4;0;0" dur="4s" repeatCount="indefinite" begin="1.5s"/>
+  </circle>
+</svg>
