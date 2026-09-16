@@ -103,15 +103,15 @@ export function ConnectionErrorCard({
         const copyId = `cmd-${index}-${cmd}`;
         const isCopied = copiedText === copyId;
         return (
-          <span key={index} className="inline-flex items-center gap-1 mx-1 my-0.5">
-            <code className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[11px] text-primary-foreground border border-border/80">
+          <span key={index} className="inline-flex items-center gap-1 mx-1 my-0.5 align-middle">
+            <code className="rounded bg-background/90 px-1.5 py-0.5 font-mono text-[11px] font-medium text-foreground border border-border/80">
               {cmd}
             </code>
             <button
               type="button"
               onClick={() => copyToClipboard(cmd, copyId)}
               title="Copy command"
-              className="inline-flex p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex p-0.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               {isCopied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
             </button>

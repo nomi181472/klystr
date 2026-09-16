@@ -132,10 +132,21 @@ export class ServerManager {
 
     console.log(`[Klystr] Starting server in ${target.cwd} via ${target.cmd} on port ${port}...`);
 
+    const augmentedPath = [
+      process.env.PATH || '',
+      '/snap/bin',
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin',
+    ]
+      .filter(Boolean)
+      .join(':');
+
     this.serverProcess = spawn(target.cmd, target.args, {
       cwd: target.cwd,
       env: {
         ...process.env,
+        PATH: augmentedPath,
         PORT: String(port),
         HOSTNAME: '127.0.0.1',
         KLYSTR_DISABLE_MOCK: 'true',

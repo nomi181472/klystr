@@ -578,6 +578,47 @@ function resolveKubeconfigPath(p: string): string {
   return trimmed;
 }
 
+function readMicrok8sKubeconfig(): string {
+  const augmentedPath = [
+    process.env.PATH || '',
+    '/snap/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ]
+    .filter(Boolean)
+    .join(':');
+
+  const env = { ...process.env, PATH: augmentedPath };
+
+  const candidateCommands = [
+    'microk8s config',
+    '/snap/bin/microk8s config',
+    '/usr/local/bin/microk8s config',
+    '/usr/bin/microk8s config',
+  ];
+
+  let lastError: any = null;
+  for (const cmd of candidateCommands) {
+    try {
+      const yaml = execSync(cmd, { encoding: 'utf-8', timeout: 5000, env });
+      if (yaml && (yaml.includes('apiVersion') || yaml.includes('clusters:'))) {
+        return yaml;
+      }
+    } catch (err: any) {
+      lastError = err;
+      const combined = `${err?.stderr ?? ''} ${err?.message ?? ''}`;
+      // If the command ran but failed because microk8s is stopped or permission denied,
+      // don't try other candidate paths
+      if (!/not found|ENOENT|127/i.test(combined)) {
+        break;
+      }
+    }
+  }
+
+  throw lastError || new Error('microk8s command not found');
+}
+
 export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.KubeConfig {
   const kubeConfig = new k8s.KubeConfig();
 
@@ -634,7 +675,7 @@ export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.Ku
   else if (settings?.environment === 'microk8s') {
     logger.info('loading microk8s kubeconfig');
     try {
-      const yaml = execSync('microk8s config', { encoding: 'utf-8', timeout: 5000 });
+      const yaml = readMicrok8sKubeconfig();
       kubeConfig.loadFromString(yaml);
     } catch (err: any) {
       const stderr = err?.stderr ? String(err.stderr).trim() : '';
@@ -664,7 +705,7 @@ export function createKubeConfig(settings?: Partial<ConnectionSettings>): k8s.Ku
     } catch (err) {
       // If default fails, check microk8s config CLI as fallback
       try {
-        const yaml = execSync('microk8s config', { encoding: 'utf-8', timeout: 5000 });
+        const yaml = readMicrok8sKubeconfig();
         kubeConfig.loadFromString(yaml);
         loaded = true;
       } catch {
