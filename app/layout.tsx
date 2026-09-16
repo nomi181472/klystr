@@ -22,9 +22,8 @@ export const metadata: Metadata = {
     icon: [
       { url: '/icon-light.svg', media: '(prefers-color-scheme: light)', type: 'image/svg+xml' },
       { url: '/icon-dark.svg', media: '(prefers-color-scheme: dark)', type: 'image/svg+xml' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
     ],
-    apple: '/icon.svg',
+    apple: '/icon-dark.svg',
   },
 };
 

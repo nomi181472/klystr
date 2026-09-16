@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTheme } from 'next-themes';
 import { RefreshCw, PanelLeftClose, PanelLeftOpen, AlertTriangle, Settings, Sun, Moon, Timer, Database, Server, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -64,18 +64,16 @@ export function Header({
   const [connectionError, setConnectionError] = useState<string>();
   const [warningsOpen, setWarningsOpen] = useState(false);
   const [warningNotificationOpen, setWarningNotificationOpen] = useState(false);
-  const [isDarkTheme, setIsDarkTheme] = useState(false);
   const lastWarningSignature = useRef('');
-  const { setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const syncTheme = () => setIsDarkTheme(root.classList.contains('dark'));
-    syncTheme();
-    const observer = new MutationObserver(syncTheme);
-    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
+  const isMounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+
+  const isDarkTheme = isMounted ? resolvedTheme === 'dark' : false;
 
   useEffect(() => {
     const signature = warnings.map(warning => `${warning.resourceType}:${warning.type}:${warning.message}`).join('|');
