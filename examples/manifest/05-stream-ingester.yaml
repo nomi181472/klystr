@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-ingester
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: stream-ingester
+    app.kubernetes.io/component: video-ingestion
+    app.kubernetes.io/part-of: vision-pipeline
+    app: stream-ingester
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: stream-ingester
+  template:
+    metadata:
+      labels:
+        app: stream-ingester
+        app.kubernetes.io/name: stream-ingester
+        app.kubernetes.io/part-of: vision-pipeline
+    spec:
+      serviceAccountName: vision-pipeline-sa
+      containers:
+        - name: rtsp-chunker
+          image: jrottenberg/ffmpeg:6.1-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - "ffmpeg -rtsp_transport tcp -i rtsp://${RTSP_STREAM_HOST}:8554/live -vf fps=30 /data/frames/chunk_%06d.jpg"
+          ports:
+            - name: rtsp-input
+              containerPort: 8554
+              protocol: TCP
+            - name: http-health
+              containerPort: 8081
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: vision-pipeline-config
+          env:
+            - name: RTSP_STREAM_HOST
+              value: "video-relay.cameras.internal"
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          volumeMounts:
+            - name: frame-buffer-volume
+              mountPath: /data/frames
+      volumes:
+        - name: frame-buffer-volume
+          persistentVolumeClaim:
+            claimName: pvc-frame-buffer

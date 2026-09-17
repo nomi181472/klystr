@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Activity, Box, FileStack, GitBranch, Lightbulb, Shield, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getEnabledPlugins } from '@/config/plugins';
@@ -33,7 +33,31 @@ function navigationOrder(runtimePlugins: PluginManifest[]) {
 
 export function WorkspaceNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [plugins, setPlugins] = useState<PluginManifest[]>(navigationOrder(getEnabledPlugins()));
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('klystr_active_route', pathname);
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          command: 'routeChanged',
+          path: pathname,
+          url: window.location.href,
+        }, '*');
+      }
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.command === 'navigateTo' && event.data.path) {
+        router.push(event.data.path);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [router]);
 
   useEffect(() => {
     let active = true;

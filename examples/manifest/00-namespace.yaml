@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-pipeline
+    app.kubernetes.io/part-of: autonomous-surveillance
+    app.kubernetes.io/managed-by: klystr

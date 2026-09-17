@@ -3,6 +3,7 @@ import type {
   ContainerRef, EdgeRef, IngestEvent, ManifestGraphSession, ManifestObject,
   ResourceNode, StructuralRefCandidate, UploadedManifestFile,
 } from './types';
+import { locateResourceInYaml, locateEdgeInYaml } from './source-locator.ts';
 
 type Emit = (event: IngestEvent) => void;
 type NameIndex = Map<string, ResourceNode[]>;
@@ -332,12 +333,46 @@ function extractLiterals(node: ResourceNode, names: NameIndex) {
   return { fields, matches };
 }
 
-function buildEdges(session: ManifestGraphSession) {
+function buildEdges(session: ManifestGraphSession, fileContentByPath?: Map<string, string>) {
   let count = 0;
   for (const node of session.nodeStore.values()) {
+    const fileContent = fileContentByPath?.get(node.source.filePath);
     const refs = [
-      ...node.structuralRefs.flatMap(ref => ref.candidateNodeKeys.map(to => ({ to, type: `structural:${ref.mode}`, meta: { fieldPath: ref.fieldPath, containerName: ref.containerName, containerRole: ref.containerRole, targetKind: ref.targetKind } }))),
-      ...node.literalRefs.flatMap(ref => ref.matchedNames.flatMap(match => match.candidateNodeKeys.map(to => ({ to, type: 'literal:name', meta: { fieldPath: ref.fieldPath, containerName: ref.containerName, containerRole: ref.containerRole, rawValue: ref.rawValue, confidence: match.confidence } })))),
+      ...node.structuralRefs.flatMap(ref => ref.candidateNodeKeys.map(to => {
+        const targetNode = session.nodeStore.get(to);
+        const lineLoc = fileContent ? locateEdgeInYaml(fileContent, { type: `structural:${ref.mode}`, meta: { fieldPath: ref.fieldPath, targetKind: ref.targetKind, targetName: ref.targetName, rawSelector: ref.rawSelector } }, node, targetNode) : undefined;
+        return {
+          to,
+          type: `structural:${ref.mode}`,
+          meta: {
+            fieldPath: ref.fieldPath,
+            containerName: ref.containerName,
+            containerRole: ref.containerRole,
+            targetKind: ref.targetKind,
+            targetName: ref.targetName,
+            line: lineLoc?.line ?? node.source.line,
+            sourceFilePath: node.source.filePath,
+          },
+        };
+      })),
+      ...node.literalRefs.flatMap(ref => ref.matchedNames.flatMap(match => match.candidateNodeKeys.map(to => {
+        const targetNode = session.nodeStore.get(to);
+        const lineLoc = fileContent ? locateEdgeInYaml(fileContent, { type: 'literal:name', meta: { fieldPath: ref.fieldPath, targetName: match.name } }, node, targetNode) : undefined;
+        return {
+          to,
+          type: 'literal:name',
+          meta: {
+            fieldPath: ref.fieldPath,
+            containerName: ref.containerName,
+            containerRole: ref.containerRole,
+            rawValue: ref.rawValue,
+            confidence: match.confidence,
+            targetName: match.name,
+            line: lineLoc?.line ?? node.source.line,
+            sourceFilePath: node.source.filePath,
+          },
+        };
+      }))),
     ] satisfies EdgeRef[];
     session.adjacencyOut.set(node.key, refs);
     for (const edge of refs) {
@@ -392,10 +427,18 @@ export function ingestFiles(session: ManifestGraphSession, files: UploadedManife
   const customScopes = buildCustomScopes(parsedObjects.map(item => item.object));
   for (const { object, file } of parsedObjects) {
     const key = resourceKey(object, customScopes);
+    const loc = locateResourceInYaml(file.content, object.kind, object.metadata.name);
     const incoming: ResourceNode = {
       key, apiVersion: object.apiVersion, kind: object.kind,
       namespace: effectiveNamespace(object, customScopes), name: object.metadata.name, raw: object,
-      source: { filePath: file.relativePath, chartName: file.chartName, lastModified: file.lastModified, ingestOrder: ingestOrder++ },
+      source: {
+        filePath: file.relativePath,
+        chartName: file.chartName,
+        lastModified: file.lastModified,
+        ingestOrder: ingestOrder++,
+        line: loc.line,
+        column: loc.column,
+      },
       literalRefs: [], structuralRefs: [], containers: [],
     };
     const previous = session.nodeStore.get(key);
@@ -420,7 +463,9 @@ export function ingestFiles(session: ManifestGraphSession, files: UploadedManife
   let fieldsScanned = 0, matchesFound = 0;
   for (const node of session.nodeStore.values()) { const result = extractLiterals(node, names); fieldsScanned += result.fields; matchesFound += result.matches; }
   emit({ type: 'literal-refs-scanned', fieldsScanned, matchesFound });
-  const edgeCount = buildEdges(session);
+  const fileContentByPath = new Map<string, string>();
+  for (const file of files) fileContentByPath.set(file.relativePath, file.content);
+  const edgeCount = buildEdges(session, fileContentByPath);
   emit({ type: 'edges-built', edgeCount });
   const conflictCount = [...session.conflicts.values()].reduce((sum, records) => sum + records.length, 0);
   emit({ type: 'done', sessionId: session.id, nodeCount: session.nodeStore.size, edgeCount, conflictCount });

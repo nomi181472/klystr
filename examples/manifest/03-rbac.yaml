@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vision-pipeline-sa
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-pipeline-sa
+    app.kubernetes.io/part-of: vision-pipeline
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vision-pipeline-role
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-pipeline-role
+    app.kubernetes.io/part-of: vision-pipeline
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["pods", "endpoints"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vision-pipeline-rolebinding
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-pipeline-rolebinding
+    app.kubernetes.io/part-of: vision-pipeline
+subjects:
+  - kind: ServiceAccount
+    name: vision-pipeline-sa
+    namespace: vision-pipeline
+roleRef:
+  kind: Role
+  name: vision-pipeline-role
+  apiGroup: rbac.authorization.k8s.io

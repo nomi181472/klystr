@@ -1,0 +1,70 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-nvme-sc
+  labels:
+    app.kubernetes.io/name: fast-nvme-sc
+    app.kubernetes.io/part-of: vision-pipeline
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-model-weights-storage
+  labels:
+    app.kubernetes.io/name: pv-model-weights-storage
+    app.kubernetes.io/part-of: vision-pipeline
+    storage-tier: nvme-accelerated
+spec:
+  capacity:
+    storage: 200Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: fast-nvme-sc
+  local:
+    path: /mnt/disks/nvme-models
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+                - linux
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-model-weights
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: pvc-model-weights
+    app.kubernetes.io/part-of: vision-pipeline
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: fast-nvme-sc
+  resources:
+    requests:
+      storage: 150Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-frame-buffer
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: pvc-frame-buffer
+    app.kubernetes.io/part-of: vision-pipeline
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-nvme-sc
+  resources:
+    requests:
+      storage: 50Gi

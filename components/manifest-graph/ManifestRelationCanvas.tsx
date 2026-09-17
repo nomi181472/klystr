@@ -7,7 +7,7 @@ import {
   ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Focus, Layers3, Maximize2, Network, Search, X } from 'lucide-react';
+import { FileCode2, Focus, Layers3, Maximize2, Network, Search, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,7 +23,11 @@ interface Props {
   selectedKey: string | null;
   onSelect: (key: string) => void;
   insights: ManifestInsight[];
+  onOpenInEditor?: (filePath: string, line?: number, column?: number) => void;
 }
+
+interface CanvasViewport { x: number; y: number; zoom: number }
+let cachedViewport: CanvasViewport | null = null;
 
 const elk = new ELK();
 const NODE_WIDTH = 190;
@@ -105,8 +109,8 @@ function MultiFilter({ label, values, selected, onChange, formatValue = value =>
   return <Popover><PopoverTrigger render={<Button variant="outline" size="sm" className="h-7 max-w-44"/>}><Layers3 size={13}/><span className="truncate">{selected.size ? `${selected.size} ${label.toLowerCase()}` : `All ${label.toLowerCase()}`}</span></PopoverTrigger><PopoverContent align="start" className="max-h-72 w-60 overflow-y-auto"><div className="flex items-center justify-between"><span className="text-xs font-medium">{label}</span>{selected.size > 0 && <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => onChange(new Set())}>All</Button>}</div>{values.map(value => <label key={value} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-xs hover:bg-muted"><Checkbox checked={selected.has(value)} onCheckedChange={checked => toggle(value, checked === true)}/><span className="truncate">{formatValue(value)}</span></label>)}</PopoverContent></Popover>;
 }
 
-function Canvas({ graph, selectedKey, onSelect, insights }: Props) {
-  const { fitView } = useReactFlow();
+function Canvas({ graph, selectedKey, onSelect, insights, onOpenInEditor }: Props) {
+  const { fitView, setViewport } = useReactFlow();
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
   const [selectedKinds, setSelectedKinds] = useState<Set<string>>(new Set());
@@ -131,6 +135,7 @@ function Canvas({ graph, selectedKey, onSelect, insights }: Props) {
     return degrees;
   }, [graph.edges]);
   const kindByNode = useMemo(() => new Map(graph.nodes.map(node => [node.key, node.kind])), [graph.nodes]);
+  const nodeByKey = useMemo(() => new Map(graph.nodes.map(node => [node.key, node])), [graph.nodes]);
   const issuesByNode = useMemo(() => {
     const grouped = new Map<string, ManifestInsight[]>();
     for (const insight of insights) grouped.set(insight.nodeKey, [...(grouped.get(insight.nodeKey) ?? []), insight]);
@@ -178,13 +183,43 @@ function Canvas({ graph, selectedKey, onSelect, insights }: Props) {
       setLayoutResult({ key: layoutKey, positions: result });
       if (!initialFitDone.current) {
         initialFitDone.current = true;
-        window.setTimeout(() => fitView({ padding: 0.12, duration: 250 }), 0);
+        let saved: CanvasViewport | null = cachedViewport;
+        if (!saved && typeof window !== 'undefined') {
+          try {
+            const raw = sessionStorage.getItem('klystr_manifest_viewport');
+            if (raw) saved = JSON.parse(raw);
+          } catch {}
+        }
+        if (saved) {
+          window.setTimeout(() => {
+            if (!cancelled) setViewport(saved!, { duration: 0 });
+          }, 50);
+        } else {
+          window.setTimeout(() => {
+            if (!cancelled) void fitView({ padding: 0.12, duration: 250 });
+          }, 50);
+        }
       }
     }).catch(() => {
       if (!cancelled) setLayoutResult({ key: layoutKey, positions: fastGridLayout(filteredNodes) });
     });
     return () => { cancelled = true; };
-  }, [bundledEdges, filteredNodes, fitView, layoutKey]);
+  }, [bundledEdges, filteredNodes, fitView, layoutKey, setViewport]);
+
+  // When switching tabs or focusing window, restore user's exact zoom and pan
+  useEffect(() => {
+    const handleRestoreViewport = () => {
+      if (!document.hidden && cachedViewport) {
+        setViewport(cachedViewport, { duration: 0 });
+      }
+    };
+    document.addEventListener('visibilitychange', handleRestoreViewport);
+    window.addEventListener('focus', handleRestoreViewport);
+    return () => {
+      document.removeEventListener('visibilitychange', handleRestoreViewport);
+      window.removeEventListener('focus', handleRestoreViewport);
+    };
+  }, [setViewport]);
 
   const flowNodes = useMemo<Node[]>(() => filteredNodes.map(node => {
     const selected = node.key === selectedKey;
@@ -194,17 +229,49 @@ function Canvas({ graph, selectedKey, onSelect, insights }: Props) {
     const issueColor = issueSeverity === 'critical' ? 'var(--destructive)' : issueSeverity === 'warning' ? 'var(--warning)' : issueSeverity === 'info' ? 'var(--info)' : null;
     return {
       id: node.key, position: positions.get(node.key) ?? { x: 0, y: 0 },
-      data: { label: <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-xs font-semibold">{node.name}</span>{nodeInsights.length > 0 && <span className="rounded-full bg-muted px-1.5 text-[9px]" aria-label={`${nodeInsights.length} manifest insights`}>{nodeInsights.length}</span>}<span className="ml-auto text-[9px] text-muted-foreground">{connections}</span></div><div className="mt-1 flex items-center gap-1.5 text-[9px] text-muted-foreground"><span className="truncate">{node.kind}</span><span>·</span><span className="truncate">{node.namespace ?? 'cluster'}</span></div></div> },
+      data: {
+        label: (
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: KIND_COLORS[node.kind] ?? 'var(--muted-foreground)' }}/>
+              <span className="truncate text-xs font-semibold text-foreground">{node.name}</span>
+              {connections > 0 && <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{connections}</span>}
+              {onOpenInEditor && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenInEditor(node.source.filePath, node.source.line, node.source.column);
+                  }}
+                  title={`Open ${node.source.filePath}${node.source.line ? `:${node.source.line}` : ''} in editor`}
+                  className="ml-0.5 rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-primary"
+                >
+                  <FileCode2 size={11} />
+                </button>
+              )}
+            </div>
+            <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>{node.kind}</span>
+              {node.namespace && <span className="truncate max-w-[90px]">{node.namespace}</span>}
+            </div>
+          </div>
+        ),
+      },
       style: {
-        width: NODE_WIDTH, minHeight: NODE_HEIGHT, borderRadius: 8,
-        border: selected ? '2px solid var(--primary)' : `1px solid ${issueColor ?? KIND_COLORS[node.kind] ?? 'var(--border)'}`,
-        background: selected ? 'color-mix(in oklch, var(--primary) 12%, var(--card))' : 'var(--card)',
-        color: 'var(--foreground)', padding: '10px 12px', boxShadow: selected ? '0 0 0 3px color-mix(in oklch, var(--primary) 14%, transparent)' : 'none',
+        width: NODE_WIDTH, height: NODE_HEIGHT,
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: selected ? '2px solid var(--primary)' : issueColor ? `1.5px solid ${issueColor}` : '1px solid var(--border)',
+        backgroundColor: selected ? 'color-mix(in oklch, var(--primary) 12%, var(--card))' : 'var(--card)',
+        boxShadow: selected ? '0 0 0 2px color-mix(in oklch, var(--primary) 25%, transparent)' : '0 1px 3px rgba(0,0,0,0.06)',
+        cursor: 'pointer',
       },
     };
-  }), [degreeByNode, filteredNodes, issuesByNode, positions, selectedKey]);
+  }), [degreeByNode, filteredNodes, issuesByNode, onOpenInEditor, positions, selectedKey]);
   const flowEdges = useMemo<Edge[]>(() => bundledEdges.map((edge, index) => ({
-    id: `${edge.from}->${edge.to}:${index}`, source: edge.from, target: edge.to,
+    id: `edge-${edge.from}-${edge.to}-${edge.type}-${index}`,
+    source: edge.from, target: edge.to,
+    animated: edge.type.includes('bySelector'),
     markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
     style: { ...edgeStyle(edge.type), strokeWidth: edge.from === selectedKey || edge.to === selectedKey ? 2.2 : 1.1, opacity: selectedKey && edge.from !== selectedKey && edge.to !== selectedKey ? 0.2 : 0.75 },
     data: edge.meta,
@@ -220,8 +287,61 @@ function Canvas({ graph, selectedKey, onSelect, insights }: Props) {
     if (focusMode && graph.nodes.length > 2_000 && !window.confirm(`Show all ${graph.nodes.length.toLocaleString()} objects? This can take longer to render.`)) return;
     setFocusMode(value => !value);
   };
+
+  const handleNodeDoubleClick = (_: React.MouseEvent, flowNode: Node) => {
+    if (!onOpenInEditor) return;
+    const targetNode = nodeByKey.get(flowNode.id);
+    if (targetNode) {
+      onOpenInEditor(targetNode.source.filePath, targetNode.source.line, targetNode.source.column);
+    }
+  };
+
+  const handleEdgeAction = (flowEdge: Edge) => {
+    if (!onOpenInEditor) return;
+    const sourceNode = nodeByKey.get(flowEdge.source);
+    const edgeMeta = flowEdge.data as Record<string, unknown> | undefined;
+    const filePath =
+      (typeof edgeMeta?.sourceFilePath === 'string' && edgeMeta.sourceFilePath) ||
+      sourceNode?.source.filePath;
+    const line = typeof edgeMeta?.line === 'number' ? edgeMeta.line : sourceNode?.source.line;
+    if (filePath) {
+      onOpenInEditor(filePath, line, 1);
+    }
+  };
+
+  const handleEdgeClick = (_: React.MouseEvent, flowEdge: Edge) => {
+    handleEdgeAction(flowEdge);
+  };
+
+  const handleEdgeDoubleClick = (_: React.MouseEvent, flowEdge: Edge) => {
+    handleEdgeAction(flowEdge);
+  };
+
   return <div className="relative h-full min-h-[480px] overflow-hidden rounded-lg border border-border bg-background">
-    <ReactFlow nodes={flowNodes} edges={flowEdges} onNodeClick={(_, node) => onSelect(node.id)} nodesDraggable={!layoutPending} nodesConnectable={false} elementsSelectable fitView minZoom={0.03} maxZoom={2.5} onlyRenderVisibleElements proOptions={{ hideAttribution: true }} aria-label="Kubernetes manifest relationship map">
+    <ReactFlow
+      nodes={flowNodes}
+      edges={flowEdges}
+      onNodeClick={(_, node) => onSelect(node.id)}
+      onNodeDoubleClick={handleNodeDoubleClick}
+      onEdgeClick={handleEdgeClick}
+      onEdgeDoubleClick={handleEdgeDoubleClick}
+      onMoveEnd={(_, viewport) => {
+        cachedViewport = viewport;
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.setItem('klystr_manifest_viewport', JSON.stringify(viewport));
+          } catch {}
+        }
+      }}
+      nodesDraggable={!layoutPending}
+      nodesConnectable={false}
+      elementsSelectable
+      minZoom={0.03}
+      maxZoom={2.5}
+      onlyRenderVisibleElements
+      proOptions={{ hideAttribution: true }}
+      aria-label="Kubernetes manifest relationship map"
+    >
       <Background variant={BackgroundVariant.Dots} gap={18} size={1}/><Controls showInteractive={false}/>{filteredNodes.length > 1 && <MiniMap position="bottom-right" pannable zoomable className="!hidden !h-32 !w-48 !border !border-border !bg-card md:!block" maskColor="color-mix(in oklch, var(--background) 65%, transparent)" nodeColor={node => KIND_COLORS[kindByNode.get(node.id) ?? ''] ?? 'var(--muted-foreground)'}/>}
       <Panel position="top-left" className="m-3 flex max-w-[calc(100%-24px)] flex-wrap items-center gap-2 rounded-lg border border-border bg-card/95 p-2 shadow-sm backdrop-blur">
         <div className="relative w-52"><Search className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" size={13}/><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find name, kind, or file" className="h-7 pl-7 text-xs"/></div>

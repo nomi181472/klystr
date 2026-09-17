@@ -42,6 +42,8 @@ export interface ResourceSource {
   chartName?: string;
   lastModified?: number;
   ingestOrder: number;
+  line?: number;
+  column?: number;
 }
 
 export interface ResourceNode {

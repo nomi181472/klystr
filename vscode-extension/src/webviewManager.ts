@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { ServerManager } from './serverManager';
 import { WorkspaceManifestScanner } from './workspaceManifestScanner';
 import { ClusterTreeProvider } from './clusterTreeProvider';
@@ -23,7 +24,13 @@ export class WebviewManager {
 
   public async openOrRevealDashboard(targetPath = '/topology'): Promise<void> {
     if (this.panel) {
-      this.panel.reveal(vscode.ViewColumn.One);
+      this.panel.reveal(this.panel.viewColumn || vscode.ViewColumn.One);
+      if (targetPath) {
+        this.sendMessage({
+          command: 'navigateTo',
+          path: targetPath,
+        });
+      }
       return;
     }
 
@@ -128,6 +135,18 @@ export class WebviewManager {
           break;
         }
 
+        case 'openFileInEditor': {
+          const { filePath, line, column } = message;
+          if (typeof filePath === 'string' && filePath) {
+            await this.openFileAtLocation(
+              filePath,
+              typeof line === 'number' ? line : 1,
+              typeof column === 'number' ? column : 1
+            );
+          }
+          break;
+        }
+
         case 'showInfo': {
           if (message.text) {
             vscode.window.showInformationMessage(message.text);
@@ -136,6 +155,68 @@ export class WebviewManager {
         }
       }
     });
+  }
+
+  private lastOpenedTarget = '';
+  private lastOpenedTime = 0;
+
+  public async openFileAtLocation(filePath: string, line = 1, column = 1): Promise<void> {
+    const key = `${filePath}:${line}:${column}`;
+    const now = Date.now();
+    if (key === this.lastOpenedTarget && now - this.lastOpenedTime < 350) {
+      return;
+    }
+    this.lastOpenedTarget = key;
+    this.lastOpenedTime = now;
+
+    try {
+      let targetUri: vscode.Uri | undefined;
+
+      if (path.isAbsolute(filePath)) {
+        targetUri = vscode.Uri.file(filePath);
+      } else {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const candidateUri = vscode.Uri.joinPath(workspaceFolders[0].uri, filePath);
+          try {
+            await vscode.workspace.fs.stat(candidateUri);
+            targetUri = candidateUri;
+          } catch {
+            const baseName = path.basename(filePath);
+            const foundUris = await vscode.workspace.findFiles(`**/${baseName}`, null, 1);
+            if (foundUris.length > 0) {
+              targetUri = foundUris[0];
+            } else {
+              targetUri = candidateUri;
+            }
+          }
+        } else {
+          targetUri = vscode.Uri.file(filePath);
+        }
+      }
+
+      if (!targetUri) return;
+
+      const doc = await vscode.workspace.openTextDocument(targetUri);
+      const lineNum = Math.max(0, line - 1);
+      const colNum = Math.max(0, column - 1);
+      const pos = new vscode.Position(lineNum, colNum);
+      const range = new vscode.Range(pos, pos);
+
+      // Open as a standard new editor tab (not split multi-tab beside)
+      const targetColumn = this.panel?.viewColumn ?? vscode.ViewColumn.Active;
+      const editor = await vscode.window.showTextDocument(doc, {
+        viewColumn: targetColumn,
+        preview: false,
+        preserveFocus: false,
+        selection: range,
+      });
+
+      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    } catch (err) {
+      console.error('[Klystr] Failed to open file in editor:', filePath, err);
+      vscode.window.showWarningMessage(`Klystr: Could not open file ${filePath}`);
+    }
   }
 
   public sendMessage(message: Record<string, unknown>): void {
@@ -278,6 +359,12 @@ export class WebviewManager {
           const vscode = acquireVsCodeApi();
           const frame = document.getElementById('klystr-frame');
 
+          // Restore previously saved route if webview was restored
+          const previousState = vscode.getState();
+          if (previousState && previousState.currentUrl) {
+            frame.src = previousState.currentUrl;
+          }
+
           window.addEventListener('message', (event) => {
             if (frame && frame.contentWindow) {
               frame.contentWindow.postMessage(event.data, '*');
@@ -286,6 +373,9 @@ export class WebviewManager {
 
           window.addEventListener('message', (event) => {
             if (event.source === frame.contentWindow) {
+              if (event.data && event.data.command === 'routeChanged' && event.data.url) {
+                vscode.setState({ currentUrl: event.data.url, currentPath: event.data.path });
+              }
               vscode.postMessage(event.data);
             }
           });

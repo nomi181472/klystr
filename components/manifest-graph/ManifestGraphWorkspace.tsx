@@ -33,20 +33,63 @@ function eventLocation(event: Extract<IngestEvent, { type: 'file-error' | 'file-
   return event.type === 'chart-error' || event.type === 'chart-warning' ? event.chartPath : event.filePath;
 }
 
+let cachedWorkspaceGraph: ManifestGraph | null = null;
+let cachedFingerprint: string = '';
+
 export function ManifestGraphWorkspace() {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [manifestUrl, setManifestUrl] = useState('');
   const [events, setEvents] = useState<IngestEvent[]>([]);
-  const [graph, setGraph] = useState<ManifestGraph | null>(null);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [graph, setGraph] = useState<ManifestGraph | null>(() => cachedWorkspaceGraph);
+  const currentGraphRef = useRef<ManifestGraph | null>(graph);
+  useEffect(() => {
+    currentGraphRef.current = graph;
+    if (graph) cachedWorkspaceGraph = graph;
+  }, [graph]);
+
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('klystr_manifest_selected_key') || sessionStorage.getItem('klystr_manifest_selected_key') || null;
+    }
+    return null;
+  });
   const [ingesting, setIngesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('overview');
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = (localStorage.getItem('klystr_manifest_view') || sessionStorage.getItem('klystr_manifest_view')) as WorkspaceView;
+      if (saved && ['overview', 'map', 'inventory', 'findings'].includes(saved)) {
+        return saved;
+      }
+    }
+    return 'map';
+  });
   const [isInsideVsCode, setIsInsideVsCode] = useState(false);
   const [workspaceFiles, setWorkspaceFiles] = useState<Array<{ relativePath: string; content: string }>>([]);
   const [currentDirInfo, setCurrentDirInfo] = useState<{ directory: string; count: number; files: Array<{ relativePath: string; size: number }> } | null>(null);
+
+  const handleSelectKey = (key: string | null) => {
+    setSelectedKey(key);
+    if (typeof window !== 'undefined') {
+      if (key) {
+        localStorage.setItem('klystr_manifest_selected_key', key);
+        sessionStorage.setItem('klystr_manifest_selected_key', key);
+      } else {
+        localStorage.removeItem('klystr_manifest_selected_key');
+        sessionStorage.removeItem('klystr_manifest_selected_key');
+      }
+    }
+  };
+
+  const handleViewChange = (view: WorkspaceView) => {
+    setWorkspaceView(view);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('klystr_manifest_view', view);
+      sessionStorage.setItem('klystr_manifest_view', view);
+    }
+  };
 
   const eventSummary = useMemo(() => ({
     done: [...events].reverse().find((event): event is Extract<IngestEvent, { type: 'done' }> => event.type === 'done'),
@@ -71,20 +114,23 @@ export function ManifestGraphWorkspace() {
     setFiles(preserveChartFiles ? selectedFiles : selectedFiles.filter(file => /\.(ya?ml|json)$/i.test(file.name)));
     setEvents([]);
     setGraph(null);
-    setSelectedKey(null);
+    handleSelectKey(null);
     setError(null);
-    setWorkspaceView('overview');
+    handleViewChange('overview');
+    cachedFingerprint = '';
   };
 
   const ingest = async (
     source: 'files' | 'url' | 'workspace' | 'current-directory' = 'files',
     customFiles?: Array<{ relativePath: string; content: string }>
   ) => {
-    if (graph?.sessionId) void fetch(`/api/manifest-graph/${graph.sessionId}`, { method: 'DELETE' }).catch(() => undefined);
+    if (source === 'files' || source === 'url') {
+      if (currentGraphRef.current?.sessionId) void fetch(`/api/manifest-graph/${currentGraphRef.current.sessionId}`, { method: 'DELETE' }).catch(() => undefined);
+      setGraph(null);
+      handleSelectKey(null);
+    }
     setIngesting(true);
     setEvents([]);
-    setGraph(null);
-    setSelectedKey(null);
     setError(null);
     try {
       let endpoint = '/api/manifest-graph/ingest';
@@ -145,9 +191,26 @@ export function ManifestGraphWorkspace() {
       }
       let initialNode = result.nodes[0];
       if (result.nodes.length > 250) for (const node of result.nodes) if ((degree.get(node.key) ?? 0) > (degree.get(initialNode?.key ?? '') ?? 0)) initialNode = node;
+      
       setGraph(result);
-      setSelectedKey(initialNode?.key ?? null);
-      setWorkspaceView('overview');
+      cachedWorkspaceGraph = result;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('klystr_manifest_session_id', sessionId);
+        sessionStorage.setItem('klystr_manifest_session_id', sessionId);
+      }
+      setSelectedKey(currentKey => {
+        const savedKey = typeof window !== 'undefined' ? (localStorage.getItem('klystr_manifest_selected_key') || sessionStorage.getItem('klystr_manifest_selected_key')) : null;
+        const candidate = currentKey || savedKey;
+        if (candidate && result.nodes.some(n => n.key === candidate)) {
+          return candidate;
+        }
+        return initialNode?.key ?? null;
+      });
+      // Retain the current tab view (e.g. 'map') without resetting to 'overview'
+      setWorkspaceView(currentView => {
+        const savedView = typeof window !== 'undefined' ? ((localStorage.getItem('klystr_manifest_view') || sessionStorage.getItem('klystr_manifest_view')) as WorkspaceView) : null;
+        return currentView || (savedView && ['overview', 'map', 'inventory', 'findings'].includes(savedView) ? savedView : 'map');
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Manifest ingestion failed.');
     } finally {
@@ -158,7 +221,28 @@ export function ManifestGraphWorkspace() {
   useEffect(() => {
     let isMounted = true;
 
-    // Indirectly fetch from the current working directory on mount
+    // Restore cached graph session on mount to eliminate re-rendering when switching tabs
+    const tryRestoreSavedGraph = async () => {
+      if (currentGraphRef.current) return true;
+      if (typeof window === 'undefined') return false;
+      const savedSessionId = localStorage.getItem('klystr_manifest_session_id') || sessionStorage.getItem('klystr_manifest_session_id');
+      if (!savedSessionId) return false;
+      try {
+        const res = await fetch(`/api/manifest-graph/${savedSessionId}`);
+        if (res.ok) {
+          const cachedGraph = await res.json() as ManifestGraph;
+          if (isMounted && cachedGraph?.nodes && cachedGraph.nodes.length > 0) {
+            setGraph(cachedGraph);
+            cachedWorkspaceGraph = cachedGraph;
+            return true;
+          }
+        }
+      } catch {
+        // Fallback to fresh scan
+      }
+      return false;
+    };
+
     const fetchCurrentDirManifests = async () => {
       try {
         const res = await fetch('/api/manifest-graph/current-directory');
@@ -166,7 +250,7 @@ export function ManifestGraphWorkspace() {
           const data = await res.json();
           if (isMounted) {
             setCurrentDirInfo(data);
-            if (data.count > 0 && !graph) {
+            if (data.count > 0 && !currentGraphRef.current && !cachedWorkspaceGraph) {
               void ingest('current-directory');
             }
           }
@@ -176,9 +260,14 @@ export function ManifestGraphWorkspace() {
       }
     };
 
-    void fetchCurrentDirManifests();
+    void (async () => {
+      const restored = await tryRestoreSavedGraph();
+      if (!restored && !currentGraphRef.current && !cachedWorkspaceGraph) {
+        void fetchCurrentDirManifests();
+      }
+    })();
 
-    // Also support VS Code extension messages if running inside VS Code
+    // Support VS Code extension messages if running inside VS Code
     const handleMessage = (event: MessageEvent) => {
       const data = event.data;
       if (data?.command === 'workspaceManifestsUpdated' || data?.command === 'workspaceManifestsResponse') {
@@ -186,6 +275,13 @@ export function ManifestGraphWorkspace() {
         if (scan?.files && Array.isArray(scan.files) && scan.files.length > 0) {
           setIsInsideVsCode(true);
           setWorkspaceFiles(scan.files);
+
+          // Avoid re-ingesting and wiping graph if workspace files have not changed
+          const fingerprint = scan.files.map((f: { relativePath: string; content?: string }) => `${f.relativePath}:${f.content?.length ?? 0}`).join('|');
+          if (fingerprint === cachedFingerprint && (currentGraphRef.current || cachedWorkspaceGraph)) {
+            return;
+          }
+          cachedFingerprint = fingerprint;
           void ingest('workspace', scan.files);
         }
       }
@@ -193,7 +289,10 @@ export function ManifestGraphWorkspace() {
     window.addEventListener('message', handleMessage);
     if (typeof window !== 'undefined' && window.parent !== window) {
       setIsInsideVsCode(true);
-      window.parent.postMessage({ command: 'requestWorkspaceManifests' }, '*');
+      window.parent.postMessage({ command: 'routeChanged', path: '/manifests', url: window.location.href }, '*');
+      if (!cachedWorkspaceGraph && !currentGraphRef.current) {
+        window.parent.postMessage({ command: 'requestWorkspaceManifests' }, '*');
+      }
     }
     return () => {
       isMounted = false;
@@ -202,8 +301,27 @@ export function ManifestGraphWorkspace() {
   }, []);
 
   const openMap = (nodeKey?: string) => {
-    if (nodeKey) setSelectedKey(nodeKey);
-    setWorkspaceView('map');
+    if (nodeKey) handleSelectKey(nodeKey);
+    handleViewChange('map');
+  };
+
+  const handleOpenInEditor = (filePath: string, line?: number, column?: number) => {
+    if (!filePath) return;
+    if (typeof window !== 'undefined') {
+      if (window.parent !== window) {
+        // Embedded inside VS Code Webview iframe
+        window.parent.postMessage({
+          command: 'openFileInEditor',
+          filePath,
+          line: line ?? 1,
+          column: column ?? 1,
+        }, '*');
+      } else {
+        // Standalone browser: attempt vscode:// URI scheme
+        const targetUrl = `vscode://file/${encodeURI(filePath)}:${line ?? 1}:${column ?? 1}`;
+        window.open(targetUrl, '_blank');
+      }
+    }
   };
 
   return <div className="flex h-full min-h-0 flex-col bg-background p-3 sm:p-4"><div className="mx-auto flex h-full min-h-0 w-full max-w-[1800px] flex-col gap-4">
@@ -216,15 +334,15 @@ export function ManifestGraphWorkspace() {
       {error && <p role="alert" className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive-foreground">{error}</p>}
       {eventSummary.notices.length > 0 && <details className="mt-2 rounded-md border border-border bg-muted/25"><summary className="cursor-pointer px-3 py-2 text-xs font-medium">Ingest report · {eventSummary.notices.length} notice{eventSummary.notices.length === 1 ? '' : 's'}</summary><div className="max-h-36 space-y-1 overflow-y-auto border-t border-border px-3 py-2">{eventSummary.notices.map((notice, index) => <div key={`${eventLocation(notice)}-${index}`} className="flex items-start gap-2 text-[10px]"><AlertTriangle size={11} className={`mt-0.5 shrink-0 ${notice.type.endsWith('error') ? 'text-destructive-foreground' : 'text-warning-foreground'}`}/><p><span className="font-mono">{eventLocation(notice)}</span>: <span className="text-muted-foreground">{notice.message}</span></p></div>)}</div></details>}
     </CardContent></Card>
-    {graph ? <Tabs value={workspaceView} onValueChange={value => setWorkspaceView(value as WorkspaceView)} className="flex min-h-0 flex-1 flex-col"><TabsList className="mb-3 grid w-full max-w-xl shrink-0 grid-cols-4"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="map">Map</TabsTrigger><TabsTrigger value="inventory">Inventory</TabsTrigger><TabsTrigger value="findings">Findings {insightCounts.critical + insightCounts.warning ? `(${insightCounts.critical + insightCounts.warning})` : ''}</TabsTrigger></TabsList>
+    {graph ? <Tabs value={workspaceView} onValueChange={value => handleViewChange(value as WorkspaceView)} className="flex min-h-0 flex-1 flex-col"><TabsList className="mb-3 grid w-full max-w-xl shrink-0 grid-cols-4"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="map">Map</TabsTrigger><TabsTrigger value="inventory">Inventory</TabsTrigger><TabsTrigger value="findings">Findings {insightCounts.critical + insightCounts.warning ? `(${insightCounts.critical + insightCounts.warning})` : ''}</TabsTrigger></TabsList>
       <TabsContent value="overview" className="min-h-0 flex-1"><ManifestOverview nodes={graph.nodes} edges={graph.edges} insights={insights} onOpenMap={openMap}/></TabsContent>
-      <TabsContent value="inventory" className="min-h-0 flex-1"><ManifestInventory nodes={graph.nodes} edges={graph.edges} insights={insights} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} onOpenMap={openMap}/></TabsContent>
-      <TabsContent value="findings" className="min-h-0 flex-1"><ManifestFindings nodes={graph.nodes} insights={insights} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} onOpenMap={openMap}/></TabsContent>
-      <TabsContent value="map" className="min-h-0 flex-1 overflow-hidden"><div className="grid h-full min-h-0 gap-4 overflow-y-auto xl:grid-cols-[250px_minmax(500px,1fr)_360px] xl:overflow-hidden">
-        <Card className="hidden min-h-0 border-border bg-card xl:block"><CardHeader className="pb-2"><CardTitle className="text-sm">Explorer</CardTitle><CardDescription>{graph.nodes.length.toLocaleString()} objects · {insights.length.toLocaleString()} findings</CardDescription></CardHeader><CardContent className="h-[calc(100%-72px)] p-0"><Tabs defaultValue="objects" className="flex h-full flex-col"><TabsList className="mx-3 mb-2"><TabsTrigger value="objects">Objects</TabsTrigger><TabsTrigger value="findings">Findings</TabsTrigger></TabsList><TabsContent value="objects" className="min-h-0 flex-1"><VirtualObjectList nodes={graph.nodes} selectedKey={selected?.key ?? null} onSelect={setSelectedKey}/></TabsContent><TabsContent value="findings" className="min-h-0 flex-1"><ScrollArea className="h-full px-3 pb-3">{insights.slice(0, 500).map(insight => <button type="button" key={insight.id} onClick={() => setSelectedKey(insight.nodeKey)} className="mb-1.5 flex w-full items-start gap-2 rounded-md border border-border bg-muted/30 p-2 text-left hover:bg-muted">{insightIcon(insight)}<span className="min-w-0"><span className="block truncate text-[11px] font-medium">{insight.title}</span><span className="block truncate text-[9px] text-muted-foreground">{nodeByKey.get(insight.nodeKey)?.name}</span></span></button>)}{insights.length > 500 && <button type="button" className="w-full rounded-md border border-border p-2 text-[10px] text-muted-foreground hover:bg-muted" onClick={() => setWorkspaceView('findings')}>Open all {insights.length.toLocaleString()} findings</button>}</ScrollArea></TabsContent></Tabs></CardContent></Card>
-        <ManifestRelationCanvas key={graph.sessionId} graph={graph} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} insights={insights}/>
-        <ManifestResourceInspector selected={selected} selectedEdges={selectedEdges} selectedInsights={selectedInsights} nodeByKey={nodeByKey} onSelect={setSelectedKey} className="min-h-[420px] xl:min-h-0"/>
-      </div></TabsContent>
+      <TabsContent value="inventory" className="min-h-0 flex-1"><ManifestInventory nodes={graph.nodes} edges={graph.edges} insights={insights} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} onOpenMap={openMap}/></TabsContent>
+      <TabsContent value="findings" className="min-h-0 flex-1"><ManifestFindings nodes={graph.nodes} insights={insights} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} onOpenMap={openMap}/></TabsContent>
+      <div className={workspaceView === 'map' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}><div className="grid h-full min-h-0 gap-4 overflow-y-auto xl:grid-cols-[250px_minmax(500px,1fr)_360px] xl:overflow-hidden">
+        <Card className="hidden min-h-0 border-border bg-card xl:block"><CardHeader className="pb-2"><CardTitle className="text-sm">Explorer</CardTitle><CardDescription>{graph.nodes.length.toLocaleString()} objects · {insights.length.toLocaleString()} findings</CardDescription></CardHeader><CardContent className="h-[calc(100%-72px)] p-0"><Tabs defaultValue="objects" className="flex h-full flex-col"><TabsList className="mx-3 mb-2"><TabsTrigger value="objects">Objects</TabsTrigger><TabsTrigger value="findings">Findings</TabsTrigger></TabsList><TabsContent value="objects" className="min-h-0 flex-1"><VirtualObjectList nodes={graph.nodes} selectedKey={selected?.key ?? null} onSelect={handleSelectKey}/></TabsContent><TabsContent value="findings" className="min-h-0 flex-1"><ScrollArea className="h-full px-3 pb-3">{insights.slice(0, 500).map(insight => <button type="button" key={insight.id} onClick={() => handleSelectKey(insight.nodeKey)} className="mb-1.5 flex w-full items-start gap-2 rounded-md border border-border bg-muted/30 p-2 text-left hover:bg-muted">{insightIcon(insight)}<span className="min-w-0"><span className="block truncate text-[11px] font-medium">{insight.title}</span><span className="block truncate text-[9px] text-muted-foreground">{nodeByKey.get(insight.nodeKey)?.name}</span></span></button>)}{insights.length > 500 && <button type="button" className="w-full rounded-md border border-border p-2 text-[10px] text-muted-foreground hover:bg-muted" onClick={() => handleViewChange('findings')}>Open all {insights.length.toLocaleString()} findings</button>}</ScrollArea></TabsContent></Tabs></CardContent></Card>
+        <ManifestRelationCanvas key="manifest-canvas" graph={graph} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} insights={insights} onOpenInEditor={handleOpenInEditor}/>
+        <ManifestResourceInspector selected={selected} selectedEdges={selectedEdges} selectedInsights={selectedInsights} nodeByKey={nodeByKey} onSelect={handleSelectKey} onOpenInEditor={handleOpenInEditor} className="min-h-[420px] xl:min-h-0"/>
+      </div></div>
     </Tabs> : <EmptyState className="flex-1" icon={<GitFork/>} title="No manifest dataset loaded" description={currentDirInfo?.directory ? `Current directory (${currentDirInfo.directory}) has ${currentDirInfo.count} Kubernetes manifest file(s). You can also upload files, select folders, or import a manifest URL.` : "Scan the current directory, upload YAML/JSON files, or paste a manifest URL."} actions={<><Button size="sm" onClick={() => void ingest('current-directory')} disabled={ingesting}><FolderSync size={14}/>Fetch from Current Directory {currentDirInfo ? `(${currentDirInfo.count})` : ''}</Button><Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}><FileCode2 size={14}/>Choose files</Button><Button variant="outline" size="sm" onClick={() => folderInput.current?.click()}><FolderOpen size={14}/>Choose folder</Button></>} />}
   </div></div>;
 }

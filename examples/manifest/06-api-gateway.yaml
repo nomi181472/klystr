@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vision-api-gateway
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-api-gateway
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/part-of: vision-pipeline
+    app: vision-api-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vision-api-gateway
+  template:
+    metadata:
+      labels:
+        app: vision-api-gateway
+        app.kubernetes.io/name: vision-api-gateway
+        app.kubernetes.io/part-of: vision-pipeline
+    spec:
+      serviceAccountName: vision-pipeline-sa
+      containers:
+        - name: gateway-app
+          image: tiangolo/uvicorn-gunicorn-fastapi:python3.11
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-api
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: vision-pipeline-config
+          env:
+            - name: INFERENCE_GRPC_TARGET
+              value: "object-detector-svc.vision-pipeline.svc.cluster.local:50051"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http-api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-api
+            initialDelaySeconds: 5
+            periodSeconds: 5

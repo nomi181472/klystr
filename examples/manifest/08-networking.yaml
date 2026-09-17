@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: object-detector-svc
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: object-detector-svc
+    app.kubernetes.io/part-of: vision-pipeline
+spec:
+  type: ClusterIP
+  selector:
+    app: object-detector
+  ports:
+    - name: grpc-inference
+      port: 50051
+      targetPort: 50051
+      protocol: TCP
+    - name: http-metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stream-ingester-svc
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: stream-ingester-svc
+    app.kubernetes.io/part-of: vision-pipeline
+spec:
+  type: ClusterIP
+  selector:
+    app: stream-ingester
+  ports:
+    - name: rtsp-input
+      port: 8554
+      targetPort: 8554
+      protocol: TCP
+    - name: http-health
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vision-api-gateway-svc
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-api-gateway-svc
+    app.kubernetes.io/part-of: vision-pipeline
+spec:
+  type: ClusterIP
+  selector:
+    app: vision-api-gateway
+  ports:
+    - name: http-web
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vision-pipeline-ingress
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-pipeline-ingress
+    app.kubernetes.io/part-of: vision-pipeline
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/websocket-services: "vision-api-gateway-svc"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: vision.ai.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vision-api-gateway-svc
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vision-pipeline-netpol
+  namespace: vision-pipeline
+  labels:
+    app.kubernetes.io/name: vision-pipeline-netpol
+    app.kubernetes.io/part-of: vision-pipeline
+spec:
+  podSelector:
+    matchLabels:
+      app: object-detector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: vision-api-gateway
+      ports:
+        - protocol: TCP
+          port: 50051
