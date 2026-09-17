@@ -2,7 +2,7 @@
   "name": "klystr",
   "displayName": "Klystr - Kubernetes Operations & Topology",
   "description": "Visual Kubernetes resource topology, RBAC inspection, manifest analysis, and cluster security in VS Code.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "klystr",
   "author": {
     "name": "Klystr Team"

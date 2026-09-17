@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { discoverLiveNamespaces, discoverLiveResources } from '@/lib/k8s/discovery';
+import { fetchTargetClusterObjects, type ObjectTarget } from '@/lib/k8s/targeted-fetch';
 import { MOCK_RESOURCES } from '@/lib/k8s/mock/fixtures';
 import type { ConnectionSettings, K8sResource } from '@/lib/types';
 import type { K8sKind } from '@/config/resource-types';
@@ -26,6 +27,7 @@ const ALL_COMPARE_KINDS: K8sKind[] = [
 
 interface CompareRequestBody extends Partial<ConnectionSettings> {
   namespaces?: string[];
+  targets?: ObjectTarget[];
 }
 
 export async function POST(request: Request) {
@@ -51,7 +53,20 @@ export async function POST(request: Request) {
     logger.info('Cluster comparison request', {
       mode: isLive ? 'live' : 'mock',
       context: requestedContext ?? settings.contextName ?? 'default',
+      targetsCount: body.targets?.length ?? 0,
     });
+
+    // Targeted comparison: query cluster specifically for the manifest objects declared
+    if (body.targets && body.targets.length > 0) {
+      const targetedResult = await fetchTargetClusterObjects(body.targets, settings);
+      return NextResponse.json({
+        accessible: true,
+        contextName: targetedResult.contextName,
+        namespaces: targetedResult.namespaces,
+        resources: targetedResult.resources,
+        fallbackToMock: targetedResult.isFallback,
+      });
+    }
 
     if (!isLive) {
       // Mock mode fallback

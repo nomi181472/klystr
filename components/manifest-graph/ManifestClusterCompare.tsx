@@ -189,12 +189,20 @@ export function ManifestClusterCompare({
 
       const params = activeContext ? `?ctx=${encodeURIComponent(activeContext)}` : '';
 
+      // Prepare target object list from manifest nodes for targeted kubectl/API lookup
+      const targets = nodes.map(n => ({
+        kind: n.kind,
+        name: n.name,
+        namespace: n.namespace || 'default',
+      }));
+
       // Fetch cluster resources
       const clusterPromise = fetch(`/api/manifest-graph/compare${params}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...effectiveSettings,
+          targets,
         }),
       }).then(res => res.json());
 
@@ -579,7 +587,7 @@ export function ManifestClusterCompare({
                 }`}
               >
                 <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />
-                Out of Sync ({report.summary.outOfSync})
+                Needs Redeployment ({report.summary.outOfSync})
               </button>
               <button
                 type="button"
@@ -591,7 +599,7 @@ export function ManifestClusterCompare({
                 }`}
               >
                 <XCircle size={11} className="inline mr-1 -mt-0.5" />
-                Missing in Cluster ({report.summary.missingInCluster})
+                Needs Deployment ({report.summary.missingInCluster})
               </button>
               <button
                 type="button"
@@ -674,13 +682,13 @@ export function ManifestClusterCompare({
                   {group.outOfSyncCount > 0 && (
                     <span className="flex items-center gap-1 text-warning-foreground font-medium">
                       <AlertTriangle size={12} />
-                      {group.outOfSyncCount} out of sync
+                      {group.outOfSyncCount} needs redeployment
                     </span>
                   )}
                   {group.missingInClusterCount > 0 && (
                     <span className="flex items-center gap-1 text-destructive-foreground font-medium">
                       <XCircle size={12} />
-                      {group.missingInClusterCount} missing
+                      {group.missingInClusterCount} needs deployment
                     </span>
                   )}
                   {group.inSyncCount > 0 && (

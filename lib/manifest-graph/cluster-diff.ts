@@ -731,8 +731,8 @@ export function compareObject(
 
   if (manifestNode && !clusterResource) {
     status = 'missing-in-cluster';
-    statusLabel = 'Missing in Cluster';
-    diffSummary.push('Declared in manifest file, but not found in active cluster.');
+    statusLabel = 'Needs Deployment';
+    diffSummary.push('Declared in manifest file, but missing in cluster (needs to be deployed).');
   } else if (!manifestNode && clusterResource) {
     status = 'cluster-only';
     statusLabel = 'Cluster Only';
@@ -753,7 +753,7 @@ export function compareObject(
         isDifferent: diff,
       });
       if (diff) {
-        diffSummary.push(`Image drift: cluster running "${clusterImgStr || 'none'}" vs declared "${manifestImgStr || 'none'}"`);
+        diffSummary.push(`Image drift: cluster running "${clusterImgStr || 'none'}" vs declared "${manifestImgStr || 'none'}" (needs to be redeployed)`);
       }
     }
 
@@ -770,24 +770,26 @@ export function compareObject(
         isDifferent: diff,
       });
       if (diff) {
-        diffSummary.push(`Replica drift: cluster has ${clusterReplicas} vs declared ${manifestReplicas}`);
+        diffSummary.push(`Replica drift: cluster has ${clusterReplicas} vs declared ${manifestReplicas} (needs to be redeployed)`);
       }
     }
 
     // 3. Service type
     if (manifestServiceType || clusterServiceType) {
-      const diff = manifestServiceType !== clusterServiceType;
+      const normManifestType = manifestServiceType || 'ClusterIP';
+      const normClusterType = clusterServiceType || 'ClusterIP';
+      const diff = normManifestType !== normClusterType;
       fields.push({
         path: 'spec.type',
         label: 'Service Type',
-        manifestValue: manifestServiceType || 'ClusterIP',
-        clusterValue: clusterServiceType || 'ClusterIP',
-        manifestHash: computePropertyHash(manifestServiceType),
-        clusterHash: computePropertyHash(clusterServiceType),
+        manifestValue: normManifestType,
+        clusterValue: normClusterType,
+        manifestHash: computePropertyHash(normManifestType),
+        clusterHash: computePropertyHash(normClusterType),
         isDifferent: diff,
       });
       if (diff) {
-        diffSummary.push(`Service type drift: cluster is ${clusterServiceType || 'ClusterIP'} vs declared ${manifestServiceType || 'ClusterIP'}`);
+        diffSummary.push(`Service type drift: cluster is ${normClusterType} vs declared ${normManifestType} (needs to be redeployed)`);
       }
     }
 
@@ -832,9 +834,15 @@ export function compareObject(
                     clusterHash: n.clusterHash,
                     isDifferent: true,
                   });
-                  diffSummary.push(
-                    `${k}.${n.key} drift: cluster has "${n.clusterValue ?? 'missing'}" vs declared "${n.manifestValue ?? 'missing'}"`
-                  );
+                  if (n.status === 'missing-in-cluster' || n.clusterValue === undefined) {
+                    diffSummary.push(
+                      `Property "${k}.${n.key}" added in file is missing in cluster (needs to be redeployed)`
+                    );
+                  } else {
+                    diffSummary.push(
+                      `Property "${k}.${n.key}" changed in file: cluster has "${n.clusterValue ?? 'missing'}" vs declared "${n.manifestValue ?? 'missing'}" (needs to be redeployed)`
+                    );
+                  }
                 }
               }
             };
@@ -850,7 +858,7 @@ export function compareObject(
                 clusterHash: computePropertyHash(valC),
                 isDifferent: true,
               });
-              diffSummary.push(`Key "${k}" drift: cluster value differs from declared manifest`);
+              diffSummary.push(`Key "${k}" drift: cluster value differs from declared manifest (needs to be redeployed)`);
             }
           } else {
             fields.push({
@@ -862,13 +870,17 @@ export function compareObject(
               clusterHash: computePropertyHash(valC),
               isDifferent: true,
             });
-            diffSummary.push(`Key "${k}" drift: cluster value differs from declared manifest`);
+            if (valM !== undefined && valC === undefined) {
+              diffSummary.push(`Key "${k}" added in file is missing in cluster (needs to be redeployed)`);
+            } else {
+              diffSummary.push(`Key "${k}" drift: cluster value differs from declared manifest (needs to be redeployed)`);
+            }
           }
         }
       }
 
       if (keyOrValueDiffCount > 0 && diffSummary.length === 0) {
-        diffSummary.push(`${keyOrValueDiffCount} data key/value difference${keyOrValueDiffCount === 1 ? '' : 's'} detected`);
+        diffSummary.push(`${keyOrValueDiffCount} data key/value difference${keyOrValueDiffCount === 1 ? '' : 's'} detected (needs to be redeployed)`);
       }
     }
 
@@ -889,9 +901,15 @@ export function compareObject(
               clusterHash: node.clusterHash,
               isDifferent: true,
             });
-            diffSummary.push(
-              `${node.label || node.key} drift: cluster has "${node.clusterValue ?? 'unset'}" vs declared "${node.manifestValue ?? 'unset'}"`
-            );
+            if (node.status === 'missing-in-cluster' || node.clusterValue === undefined) {
+              diffSummary.push(
+                `Property "${node.label || node.key}" added in file is missing in cluster (needs to be redeployed)`
+              );
+            } else {
+              diffSummary.push(
+                `Property "${node.label || node.key}" changed in file: cluster has "${node.clusterValue ?? 'unset'}" vs declared "${node.manifestValue ?? 'unset'}" (needs to be redeployed)`
+              );
+            }
           }
         }
       }
@@ -904,7 +922,7 @@ export function compareObject(
 
     if (hasFieldDrift || hasTreeDrift) {
       status = 'out-of-sync';
-      statusLabel = 'Out of Sync';
+      statusLabel = 'Needs Redeployment';
     } else {
       status = 'in-sync';
       statusLabel = 'In Sync';
