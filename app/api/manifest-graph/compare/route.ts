@@ -79,6 +79,23 @@ export async function POST(request: Request) {
       });
 
       const resources: K8sResource[] = discovered?.resources ?? [];
+      const hasConnectionError = nsDiscovery.warnings.some(w => w.type === 'error');
+
+      // Fallback: If cluster discovery yielded 0 resources and had connection errors, fall back to mock fixtures
+      if (resources.length === 0 && (availableNamespaces.length === 0 || hasConnectionError)) {
+        logger.warn('Live cluster unreachable in compare, falling back to mock fixtures', {
+          warnings: nsDiscovery.warnings,
+          context: requestedContext ?? settings.contextName,
+        });
+        const fallbackNamespaces = Array.from(new Set(MOCK_RESOURCES.map(r => r.namespace || 'default'))).sort();
+        return NextResponse.json({
+          accessible: true,
+          fallbackToMock: true,
+          contextName: `${requestedContext || settings.contextName || 'cluster'} (demo-fallback)`,
+          namespaces: fallbackNamespaces,
+          resources: MOCK_RESOURCES,
+        });
+      }
 
       return NextResponse.json({
         accessible: true,
@@ -87,14 +104,14 @@ export async function POST(request: Request) {
         resources,
       });
     } catch (clusterErr) {
-      logger.warn('Cluster unreachable during comparison check', clusterErr);
-      const errorMessage = clusterErr instanceof Error ? clusterErr.message : 'Unable to connect to Kubernetes cluster.';
+      logger.warn('Cluster unreachable during comparison check, falling back to mock fixtures', clusterErr);
+      const fallbackNamespaces = Array.from(new Set(MOCK_RESOURCES.map(r => r.namespace || 'default'))).sort();
       return NextResponse.json({
-        accessible: false,
-        error: errorMessage,
-        contextName: requestedContext || settings.contextName || 'unknown',
-        namespaces: [],
-        resources: [],
+        accessible: true,
+        fallbackToMock: true,
+        contextName: `${requestedContext || settings.contextName || 'cluster'} (demo-fallback)`,
+        namespaces: fallbackNamespaces,
+        resources: MOCK_RESOURCES,
       });
     }
   } catch (err) {

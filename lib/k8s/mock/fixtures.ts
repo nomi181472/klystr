@@ -640,10 +640,37 @@ export const MOCK_RESOURCES: K8sResource[] = [
   {
     uid: 'sts-bookstore-db', kind: 'StatefulSet', apiVersion: 'apps/v1', name: 'bookstore-db', namespace: 'klystr-bookstore',
     labels: { 'app.kubernetes.io/name': 'bookstore-db', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Ready', discoveredAt: ts(),
-    containers: [{ name: 'postgres', image: 'postgres:16-alpine', ports: [{ port: 5432, protocol: 'TCP', name: 'postgres' }], envVars: [], volumeMounts: [] }],
+    containers: [{
+      name: 'postgres',
+      image: 'postgres:16-alpine',
+      ports: [{ port: 5432, protocol: 'TCP', name: 'postgres' }],
+      envVars: [
+        { name: 'POSTGRES_DB', value: 'bookstore' },
+        { name: 'POSTGRES_USER', value: 'postgres' },
+        { name: 'POSTGRES_PASSWORD', value: 'postgres' },
+        { name: 'PGDATA', value: '/var/lib/postgresql/data/pgdata' },
+      ],
+      volumeMounts: [],
+    }],
     raw: {
       apiVersion: 'apps/v1', kind: 'StatefulSet', metadata: { name: 'bookstore-db', namespace: 'klystr-bookstore' },
-      spec: { replicas: 1, template: { spec: { containers: [{ name: 'postgres', image: 'postgres:16-alpine' }] } } },
+      spec: {
+        replicas: 1,
+        template: {
+          spec: {
+            containers: [{
+              name: 'postgres',
+              image: 'postgres:16-alpine',
+              env: [
+                { name: 'POSTGRES_DB', value: 'bookstore' },
+                { name: 'POSTGRES_USER', value: 'postgres' },
+                { name: 'POSTGRES_PASSWORD', value: 'postgres' },
+                { name: 'PGDATA', value: '/var/lib/postgresql/data/pgdata' },
+              ],
+            }],
+          },
+        },
+      },
     },
   },
   {

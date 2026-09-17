@@ -872,6 +872,32 @@ export function compareObject(
       }
     }
 
+    // 5. Recursively collect all drifted leaf properties from propertyTree into fields and diffSummary
+    const collectDriftedLeaves = (treeNodes: PropertyTreeNode[]) => {
+      for (const node of treeNodes) {
+        if (node.children && node.children.length > 0) {
+          collectDriftedLeaves(node.children);
+        } else if (node.isDifferent) {
+          const alreadyCovered = fields.some(f => f.path === node.path);
+          if (!alreadyCovered) {
+            fields.push({
+              path: node.path,
+              label: node.label || node.key,
+              manifestValue: node.manifestValue ?? '(unset)',
+              clusterValue: node.clusterValue ?? '(unset)',
+              manifestHash: node.manifestHash,
+              clusterHash: node.clusterHash,
+              isDifferent: true,
+            });
+            diffSummary.push(
+              `${node.label || node.key} drift: cluster has "${node.clusterValue ?? 'unset'}" vs declared "${node.manifestValue ?? 'unset'}"`
+            );
+          }
+        }
+      }
+    };
+    collectDriftedLeaves(propertyTree);
+
     // Check tree diff for any other property drifts
     const hasTreeDrift = propertyTree.some(root => root.isDifferent);
     const hasFieldDrift = fields.some(f => f.isDifferent);
