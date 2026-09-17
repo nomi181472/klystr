@@ -14,6 +14,7 @@ import { ManifestInventory } from './ManifestInventory';
 import { ManifestOverview } from './ManifestOverview';
 import { ManifestRelationCanvas } from './ManifestRelationCanvas';
 import { ManifestResourceInspector } from './ManifestResourceInspector';
+import { ManifestClusterCompare } from './ManifestClusterCompare';
 import { VirtualObjectList } from './VirtualObjectList';
 import { EmptyState } from '@/components/ui/empty-state';
 import { analyzeManifestGraph, type ManifestInsight } from '@/lib/manifest-graph/insights';
@@ -21,7 +22,7 @@ import type { GraphEdgeRecord, IngestEvent, ResourceNode } from '@/lib/manifest-
 
 interface ManifestGraph { sessionId: string; nodes: ResourceNode[]; edges: GraphEdgeRecord[] }
 type DirectoryInput = HTMLInputElement & { webkitdirectory: boolean };
-type WorkspaceView = 'overview' | 'map' | 'inventory' | 'findings';
+type WorkspaceView = 'overview' | 'map' | 'inventory' | 'findings' | 'compare';
 
 function insightIcon(insight: ManifestInsight) {
   if (insight.severity === 'critical') return <AlertCircle size={13} className="mt-0.5 shrink-0 text-destructive-foreground"/>;
@@ -60,7 +61,7 @@ export function ManifestGraphWorkspace() {
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(() => {
     if (typeof window !== 'undefined') {
       const saved = (localStorage.getItem('klystr_manifest_view') || sessionStorage.getItem('klystr_manifest_view')) as WorkspaceView;
-      if (saved && ['overview', 'map', 'inventory', 'findings'].includes(saved)) {
+      if (saved && ['overview', 'map', 'inventory', 'findings', 'compare'].includes(saved)) {
         return saved;
       }
     }
@@ -209,7 +210,7 @@ export function ManifestGraphWorkspace() {
       // Retain the current tab view (e.g. 'map') without resetting to 'overview'
       setWorkspaceView(currentView => {
         const savedView = typeof window !== 'undefined' ? ((localStorage.getItem('klystr_manifest_view') || sessionStorage.getItem('klystr_manifest_view')) as WorkspaceView) : null;
-        return currentView || (savedView && ['overview', 'map', 'inventory', 'findings'].includes(savedView) ? savedView : 'map');
+        return currentView || (savedView && ['overview', 'map', 'inventory', 'findings', 'compare'].includes(savedView) ? savedView : 'map');
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Manifest ingestion failed.');
@@ -351,10 +352,11 @@ export function ManifestGraphWorkspace() {
       {error && <p role="alert" className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive-foreground">{error}</p>}
       {eventSummary.notices.length > 0 && <details className="mt-2 rounded-md border border-border bg-muted/25"><summary className="cursor-pointer px-3 py-2 text-xs font-medium">Ingest report · {eventSummary.notices.length} notice{eventSummary.notices.length === 1 ? '' : 's'}</summary><div className="max-h-36 space-y-1 overflow-y-auto border-t border-border px-3 py-2">{eventSummary.notices.map((notice, index) => <div key={`${eventLocation(notice)}-${index}`} className="flex items-start gap-2 text-[10px]"><AlertTriangle size={11} className={`mt-0.5 shrink-0 ${notice.type.endsWith('error') ? 'text-destructive-foreground' : 'text-warning-foreground'}`}/><p><span className="font-mono">{eventLocation(notice)}</span>: <span className="text-muted-foreground">{notice.message}</span></p></div>)}</div></details>}
     </CardContent></Card>
-    {graph ? <Tabs value={workspaceView} onValueChange={value => handleViewChange(value as WorkspaceView)} className="flex min-h-0 flex-1 flex-col"><TabsList className="mb-3 grid w-full max-w-xl shrink-0 grid-cols-4"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="map">Map</TabsTrigger><TabsTrigger value="inventory">Inventory</TabsTrigger><TabsTrigger value="findings">Findings {insightCounts.critical + insightCounts.warning ? `(${insightCounts.critical + insightCounts.warning})` : ''}</TabsTrigger></TabsList>
+    {graph ? <Tabs value={workspaceView} onValueChange={value => handleViewChange(value as WorkspaceView)} className="flex min-h-0 flex-1 flex-col"><TabsList className="mb-3 grid w-full max-w-2xl shrink-0 grid-cols-5"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="map">Map</TabsTrigger><TabsTrigger value="inventory">Inventory</TabsTrigger><TabsTrigger value="findings">Findings {insightCounts.critical + insightCounts.warning ? `(${insightCounts.critical + insightCounts.warning})` : ''}</TabsTrigger><TabsTrigger value="compare">Cluster Compare</TabsTrigger></TabsList>
       <TabsContent value="overview" className="min-h-0 flex-1"><ManifestOverview nodes={graph.nodes} edges={graph.edges} insights={insights} onOpenMap={openMap}/></TabsContent>
       <TabsContent value="inventory" className="min-h-0 flex-1"><ManifestInventory nodes={graph.nodes} edges={graph.edges} insights={insights} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} onOpenMap={openMap}/></TabsContent>
       <TabsContent value="findings" className="min-h-0 flex-1"><ManifestFindings nodes={graph.nodes} insights={insights} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} onOpenMap={openMap}/></TabsContent>
+      <TabsContent value="compare" className="min-h-0 flex-1 overflow-y-auto"><ManifestClusterCompare nodes={graph.nodes} onOpenInEditor={handleOpenInEditor} onIngestCurrentDir={() => void ingest('current-directory')}/></TabsContent>
       <div className={workspaceView === 'map' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}><div className="grid h-full min-h-0 gap-4 overflow-y-auto xl:grid-cols-[250px_minmax(500px,1fr)_360px] xl:overflow-hidden">
         <Card className="hidden min-h-0 border-border bg-card xl:block"><CardHeader className="pb-2"><CardTitle className="text-sm">Explorer</CardTitle><CardDescription>{graph.nodes.length.toLocaleString()} objects · {insights.length.toLocaleString()} findings</CardDescription></CardHeader><CardContent className="h-[calc(100%-72px)] p-0"><Tabs defaultValue="objects" className="flex h-full flex-col"><TabsList className="mx-3 mb-2"><TabsTrigger value="objects">Objects</TabsTrigger><TabsTrigger value="findings">Findings</TabsTrigger></TabsList><TabsContent value="objects" className="min-h-0 flex-1"><VirtualObjectList nodes={graph.nodes} selectedKey={selected?.key ?? null} onSelect={handleSelectKey}/></TabsContent><TabsContent value="findings" className="min-h-0 flex-1"><ScrollArea className="h-full px-3 pb-3">{insights.slice(0, 500).map(insight => <button type="button" key={insight.id} onClick={() => handleSelectKey(insight.nodeKey)} className="mb-1.5 flex w-full items-start gap-2 rounded-md border border-border bg-muted/30 p-2 text-left hover:bg-muted">{insightIcon(insight)}<span className="min-w-0"><span className="block truncate text-[11px] font-medium">{insight.title}</span><span className="block truncate text-[9px] text-muted-foreground">{nodeByKey.get(insight.nodeKey)?.name}</span></span></button>)}{insights.length > 500 && <button type="button" className="w-full rounded-md border border-border p-2 text-[10px] text-muted-foreground hover:bg-muted" onClick={() => handleViewChange('findings')}>Open all {insights.length.toLocaleString()} findings</button>}</ScrollArea></TabsContent></Tabs></CardContent></Card>
         <ManifestRelationCanvas key="manifest-canvas" graph={graph} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} insights={insights} onOpenInEditor={handleOpenInEditor}/>

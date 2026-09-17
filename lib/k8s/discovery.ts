@@ -103,6 +103,7 @@ function toResource(kind: K8sKind, object: KubernetesObject): K8sResource {
     ownerReferences: metadata.ownerReferences?.map((owner: any) => ({ kind: owner.kind, name: owner.name, uid: owner.uid })),
     discoveredAt: new Date().toISOString(),
     nodeName: spec.nodeName,
+    raw: object,
   };
   if (containers.length) {
     resource.envVars = envVars(containers);
