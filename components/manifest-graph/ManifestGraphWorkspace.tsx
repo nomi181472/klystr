@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, FileCode2, FolderOpen, FolderSync, GitFork, Info, Link2, Upload } from 'lucide-react';
+import { AlertCircle, AlertTriangle, FileCode2, FolderOpen, FolderSync, GitFork, Info, Link2, RotateCw, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -219,6 +219,21 @@ export function ManifestGraphWorkspace() {
     }
   };
 
+  const [isCompareRefreshing, setIsCompareRefreshing] = useState(false);
+
+  const handleCompareRefresh = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setIsCompareRefreshing(true);
+    window.dispatchEvent(new CustomEvent('klystr:refresh:compare'));
+    window.dispatchEvent(new CustomEvent('klystr:refresh', { detail: { pluginId: 'manifests-compare' } }));
+    setTimeout(() => {
+      setIsCompareRefreshing(false);
+    }, 700);
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -303,7 +318,9 @@ export function ManifestGraphWorkspace() {
 
   useEffect(() => {
     const handleRefresh = () => {
-      if (files.length > 0) {
+      if (workspaceView === 'compare') {
+        handleCompareRefresh();
+      } else if (files.length > 0) {
         void ingest('files');
       } else if (manifestUrl.trim()) {
         void ingest('url');
@@ -316,7 +333,7 @@ export function ManifestGraphWorkspace() {
     window.addEventListener('klystr:refresh:manifests', handleRefresh);
     return () => window.removeEventListener('klystr:refresh:manifests', handleRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, manifestUrl, workspaceFiles]);
+  }, [files, manifestUrl, workspaceFiles, workspaceView]);
 
   const openMap = (nodeKey?: string) => {
     if (nodeKey) handleSelectKey(nodeKey);
@@ -352,11 +369,11 @@ export function ManifestGraphWorkspace() {
       {error && <p role="alert" className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive-foreground">{error}</p>}
       {eventSummary.notices.length > 0 && <details className="mt-2 rounded-md border border-border bg-muted/25"><summary className="cursor-pointer px-3 py-2 text-xs font-medium">Ingest report · {eventSummary.notices.length} notice{eventSummary.notices.length === 1 ? '' : 's'}</summary><div className="max-h-36 space-y-1 overflow-y-auto border-t border-border px-3 py-2">{eventSummary.notices.map((notice, index) => <div key={`${eventLocation(notice)}-${index}`} className="flex items-start gap-2 text-[10px]"><AlertTriangle size={11} className={`mt-0.5 shrink-0 ${notice.type.endsWith('error') ? 'text-destructive-foreground' : 'text-warning-foreground'}`}/><p><span className="font-mono">{eventLocation(notice)}</span>: <span className="text-muted-foreground">{notice.message}</span></p></div>)}</div></details>}
     </CardContent></Card>
-    {graph ? <Tabs value={workspaceView} onValueChange={value => handleViewChange(value as WorkspaceView)} className="flex min-h-0 flex-1 flex-col"><TabsList className="mb-3 grid w-full max-w-2xl shrink-0 grid-cols-5"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="map">Map</TabsTrigger><TabsTrigger value="inventory">Inventory</TabsTrigger><TabsTrigger value="findings">Findings {insightCounts.critical + insightCounts.warning ? `(${insightCounts.critical + insightCounts.warning})` : ''}</TabsTrigger><TabsTrigger value="compare">Cluster Compare</TabsTrigger></TabsList>
+    {graph ? <Tabs value={workspaceView} onValueChange={value => handleViewChange(value as WorkspaceView)} className="flex min-h-0 flex-1 flex-col"><TabsList className="mb-3 grid w-full max-w-2xl shrink-0 grid-cols-5"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="map">Map</TabsTrigger><TabsTrigger value="inventory">Inventory</TabsTrigger><TabsTrigger value="findings">Findings {insightCounts.critical + insightCounts.warning ? `(${insightCounts.critical + insightCounts.warning})` : ''}</TabsTrigger><TabsTrigger value="compare" className="group relative flex items-center justify-center gap-1.5"><span>Cluster Compare</span><button type="button" onClick={handleCompareRefresh} title="Reload Cluster Compare data" aria-label="Reload Cluster Compare data" className={`group/reload -mr-1 ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-sm text-muted-foreground transition-all duration-200 hover:bg-muted/80 hover:text-primary hover:scale-110 active:scale-95 ${isCompareRefreshing ? 'opacity-100 text-primary pointer-events-auto' : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto'}`}><RotateCw size={10} className={`transition-transform duration-300 ${isCompareRefreshing ? 'animate-spin' : 'group-hover/reload:rotate-180'}`}/></button></TabsTrigger></TabsList>
       <TabsContent value="overview" className="min-h-0 flex-1"><ManifestOverview nodes={graph.nodes} edges={graph.edges} insights={insights} onOpenMap={openMap}/></TabsContent>
       <TabsContent value="inventory" className="min-h-0 flex-1"><ManifestInventory nodes={graph.nodes} edges={graph.edges} insights={insights} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} onOpenMap={openMap}/></TabsContent>
       <TabsContent value="findings" className="min-h-0 flex-1"><ManifestFindings nodes={graph.nodes} insights={insights} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} onOpenMap={openMap}/></TabsContent>
-      <TabsContent value="compare" className="min-h-0 flex-1 overflow-y-auto"><ManifestClusterCompare nodes={graph.nodes} onOpenInEditor={handleOpenInEditor} onIngestCurrentDir={() => void ingest('current-directory')}/></TabsContent>
+      <div className={workspaceView === 'compare' ? 'min-h-0 flex-1 overflow-y-auto' : 'hidden'}><ManifestClusterCompare nodes={graph.nodes} onOpenInEditor={handleOpenInEditor} onIngestCurrentDir={() => void ingest('current-directory')}/></div>
       <div className={workspaceView === 'map' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}><div className="grid h-full min-h-0 gap-4 overflow-y-auto xl:grid-cols-[250px_minmax(500px,1fr)_360px] xl:overflow-hidden">
         <Card className="hidden min-h-0 border-border bg-card xl:block"><CardHeader className="pb-2"><CardTitle className="text-sm">Explorer</CardTitle><CardDescription>{graph.nodes.length.toLocaleString()} objects · {insights.length.toLocaleString()} findings</CardDescription></CardHeader><CardContent className="h-[calc(100%-72px)] p-0"><Tabs defaultValue="objects" className="flex h-full flex-col"><TabsList className="mx-3 mb-2"><TabsTrigger value="objects">Objects</TabsTrigger><TabsTrigger value="findings">Findings</TabsTrigger></TabsList><TabsContent value="objects" className="min-h-0 flex-1"><VirtualObjectList nodes={graph.nodes} selectedKey={selected?.key ?? null} onSelect={handleSelectKey}/></TabsContent><TabsContent value="findings" className="min-h-0 flex-1"><ScrollArea className="h-full px-3 pb-3">{insights.slice(0, 500).map(insight => <button type="button" key={insight.id} onClick={() => handleSelectKey(insight.nodeKey)} className="mb-1.5 flex w-full items-start gap-2 rounded-md border border-border bg-muted/30 p-2 text-left hover:bg-muted">{insightIcon(insight)}<span className="min-w-0"><span className="block truncate text-[11px] font-medium">{insight.title}</span><span className="block truncate text-[9px] text-muted-foreground">{nodeByKey.get(insight.nodeKey)?.name}</span></span></button>)}{insights.length > 500 && <button type="button" className="w-full rounded-md border border-border p-2 text-[10px] text-muted-foreground hover:bg-muted" onClick={() => handleViewChange('findings')}>Open all {insights.length.toLocaleString()} findings</button>}</ScrollArea></TabsContent></Tabs></CardContent></Card>
         <ManifestRelationCanvas key="manifest-canvas" graph={graph} selectedKey={selected?.key ?? null} onSelect={handleSelectKey} insights={insights} onOpenInEditor={handleOpenInEditor}/>
