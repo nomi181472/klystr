@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -87,6 +87,16 @@ const STEPS_LIST = [
   { step: 5, name: 'Assembly' },
 ] as const;
 
+interface CachedCompareState {
+  signature: string;
+  report: ComparisonReport;
+  clusterResources: K8sResource[];
+  clusterNamespaces: string[];
+  contextName: string;
+}
+
+let cachedCompareState: CachedCompareState | null = null;
+
 export function ManifestClusterCompare({
   nodes,
   connectionSettings: propSettings,
@@ -97,12 +107,41 @@ export function ManifestClusterCompare({
   const storeSettings = useConnectionStore(s => s.settings);
   const effectiveSettings = propSettings ?? storeSettings;
 
-  const [clusterResources, setClusterResources] = useState<K8sResource[]>([]);
-  const [clusterNamespaces, setClusterNamespaces] = useState<string[]>([]);
-  const [isAccessible, setIsAccessible] = useState<boolean | null>(null);
+  const nodeSignature = useMemo(() => {
+    if (!nodes || nodes.length === 0) return '';
+    return `${nodes.length}:${nodes.map(n => n.key).sort().join(',')}`;
+  }, [nodes]);
+
+  const hasCachedReport = Boolean(cachedCompareState && cachedCompareState.signature === nodeSignature);
+
+  const [clusterResources, setClusterResources] = useState<K8sResource[]>(() => {
+    if (cachedCompareState && cachedCompareState.signature === nodeSignature) {
+      return cachedCompareState.clusterResources;
+    }
+    return [];
+  });
+  const [clusterNamespaces, setClusterNamespaces] = useState<string[]>(() => {
+    if (cachedCompareState && cachedCompareState.signature === nodeSignature) {
+      return cachedCompareState.clusterNamespaces;
+    }
+    return [];
+  });
+  const [isAccessible, setIsAccessible] = useState<boolean | null>(() => {
+    if (cachedCompareState && cachedCompareState.signature === nodeSignature) {
+      return true;
+    }
+    return null;
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [contextName, setContextName] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(true);
+  const [contextName, setContextName] = useState<string>(() => {
+    if (cachedCompareState && cachedCompareState.signature === nodeSignature) {
+      return cachedCompareState.contextName;
+    }
+    return '';
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    return !hasCachedReport;
+  });
 
   // Progress state for real-time async pipeline
   const [progress, setProgress] = useState<CompareProgress>({
@@ -123,7 +162,12 @@ export function ManifestClusterCompare({
   const [expandedDiffs, setExpandedDiffs] = useState<Set<string>>(new Set());
 
   // Report state computed asynchronously
-  const [report, setReport] = useState<ComparisonReport | null>(null);
+  const [report, setReport] = useState<ComparisonReport | null>(() => {
+    if (cachedCompareState && cachedCompareState.signature === nodeSignature) {
+      return cachedCompareState.report;
+    }
+    return null;
+  });
 
   const hasManifests = nodes.length > 0;
 
@@ -142,7 +186,6 @@ export function ManifestClusterCompare({
       });
 
       const params = activeContext ? `?ctx=${encodeURIComponent(activeContext)}` : '';
-      const activeNsArray = selectedNamespaces.has('all') ? undefined : Array.from(selectedNamespaces);
 
       // Fetch cluster resources
       const clusterPromise = fetch(`/api/manifest-graph/compare${params}`, {
@@ -150,7 +193,6 @@ export function ManifestClusterCompare({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...effectiveSettings,
-          namespaces: activeNsArray,
         }),
       }).then(res => res.json());
 
@@ -174,11 +216,19 @@ export function ManifestClusterCompare({
       const computedReport = await buildComparisonReportAsync(
         nodes,
         resources,
-        activeNsArray,
+        undefined,
         updatedProgress => {
           setProgress(updatedProgress);
         }
       );
+
+      cachedCompareState = {
+        signature: nodeSignature,
+        report: computedReport,
+        clusterResources: resources,
+        clusterNamespaces: data.namespaces || [],
+        contextName: data.contextName || activeContext || 'connected-cluster',
+      };
 
       setReport(computedReport);
     } catch (err) {
@@ -188,10 +238,36 @@ export function ManifestClusterCompare({
     } finally {
       setLoading(false);
     }
-  }, [activeContext, effectiveSettings, nodes, selectedNamespaces]);
+  }, [activeContext, effectiveSettings, nodeSignature, nodes]);
+
+  const lastSignatureRef = useRef<string>(cachedCompareState?.signature || '');
+  const hasInitializedRef = useRef<boolean>(hasCachedReport);
 
   useEffect(() => {
-    void runComparisonPipeline();
+    if (!hasManifests) return;
+
+    // If manifest dataset changed (new files ingested), re-run
+    if (nodeSignature && nodeSignature !== lastSignatureRef.current) {
+      lastSignatureRef.current = nodeSignature;
+      hasInitializedRef.current = true;
+      void runComparisonPipeline();
+      return;
+    }
+
+    // Initial run if no cached report exists
+    if (!report && !hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      void runComparisonPipeline();
+    }
+  }, [hasManifests, nodeSignature, report, runComparisonPipeline]);
+
+  // Listen to external refresh trigger (e.g. from tab reload button)
+  useEffect(() => {
+    const handleRefresh = () => {
+      void runComparisonPipeline();
+    };
+    window.addEventListener('klystr:refresh:compare', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:compare', handleRefresh);
   }, [runComparisonPipeline]);
 
   // Discover all distinct namespaces
@@ -244,6 +320,7 @@ export function ManifestClusterCompare({
     return report.byKind
       .map(group => {
         const filteredItems = group.items.filter(item => {
+          if (!selectedNamespaces.has('all') && !selectedNamespaces.has(item.namespace)) return false;
           if (statusFilter !== 'all' && item.status !== statusFilter) return false;
           if (query) {
             const matchesName = item.name.toLowerCase().includes(query);
@@ -259,7 +336,7 @@ export function ManifestClusterCompare({
         };
       })
       .filter(group => group.items.length > 0);
-  }, [report, statusFilter, searchQuery]);
+  }, [report, selectedNamespaces, statusFilter, searchQuery]);
 
   // ── Prerequisite Screen 1: No Manifest Files ──────────────────────────────────
   if (!hasManifests) {
