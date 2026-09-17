@@ -8,13 +8,17 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Columns3,
   Database,
   ExternalLink,
   FileCode2,
   FileText,
   Filter,
+  FolderOpen,
   FolderSync,
+  FolderTree,
   HardDrive,
+  Hash,
   KeyRound,
   Layers,
   Network,
@@ -32,11 +36,13 @@ import { useConnectionStore } from '@/stores/connection-store';
 import type { ResourceNode } from '@/lib/manifest-graph/types';
 import type { ConnectionSettings, K8sResource } from '@/lib/types';
 import {
-  buildComparisonReport,
+  buildComparisonReportAsync,
+  type CompareProgress,
   type ComparisonReport,
   type DiffStatus,
   type KindGroupComparison,
   type ObjectComparison,
+  type PropertyTreeNode,
 } from '@/lib/manifest-graph/cluster-diff';
 
 interface ManifestClusterCompareProps {
@@ -46,6 +52,8 @@ interface ManifestClusterCompareProps {
   onOpenInEditor?: (filePath: string, line?: number, column?: number) => void;
   onIngestCurrentDir?: () => void;
 }
+
+type ViewMode = 'two-column' | 'tree';
 
 const KIND_ICONS: Record<string, React.ElementType> = {
   Deployment: Layers,
@@ -71,6 +79,14 @@ const STATUS_TONES: Record<DiffStatus, StatusTone> = {
   'cluster-only': 'neutral',
 };
 
+const STEPS_LIST = [
+  { step: 1, name: 'Reading Manifests' },
+  { step: 2, name: 'Cluster Discovery' },
+  { step: 3, name: 'Normalization' },
+  { step: 4, name: 'Property Hashing' },
+  { step: 5, name: 'Assembly' },
+] as const;
+
 export function ManifestClusterCompare({
   nodes,
   connectionSettings: propSettings,
@@ -88,41 +104,83 @@ export function ManifestClusterCompare({
   const [contextName, setContextName] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Namespace selection: Set of strings. If contains 'all' or empty, all namespaces are shown.
+  // Progress state for real-time async pipeline
+  const [progress, setProgress] = useState<CompareProgress>({
+    step: 1,
+    stepName: 'Initializing',
+    description: 'Starting cluster comparison pipeline…',
+    percent: 5,
+  });
+
+  // Dual View Mode State
+  const [viewMode, setViewMode] = useState<ViewMode>('two-column');
+  const [onlyDriftedProperties, setOnlyDriftedProperties] = useState<boolean>(true);
+
+  // Filters & State
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(new Set(['all']));
   const [statusFilter, setStatusFilter] = useState<'all' | DiffStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedDiffs, setExpandedDiffs] = useState<Set<string>>(new Set());
 
-  // Prerequisite 1: Manifest files must be loaded
+  // Report state computed asynchronously
+  const [report, setReport] = useState<ComparisonReport | null>(null);
+
   const hasManifests = nodes.length > 0;
 
-  // Query live cluster resources
-  const fetchClusterState = useCallback(async () => {
+  // Run the 5-step async comparison pipeline
+  const runComparisonPipeline = useCallback(async () => {
     setLoading(true);
     setErrorMessage(null);
+
     try {
+      // Step 1 & 2: Concurrently read manifests & fetch live cluster resources
+      setProgress({
+        step: 1,
+        stepName: 'Reading Manifests & Discovery',
+        description: 'Connecting to cluster and scanning workspace manifests in parallel…',
+        percent: 20,
+      });
+
       const params = activeContext ? `?ctx=${encodeURIComponent(activeContext)}` : '';
-      const response = await fetch(`/api/manifest-graph/compare${params}`, {
+      const activeNsArray = selectedNamespaces.has('all') ? undefined : Array.from(selectedNamespaces);
+
+      // Fetch cluster resources
+      const clusterPromise = fetch(`/api/manifest-graph/compare${params}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...effectiveSettings,
-          namespaces: Array.from(selectedNamespaces).filter(ns => ns !== 'all'),
+          namespaces: activeNsArray,
         }),
-      });
+      }).then(res => res.json());
 
-      const data = await response.json();
-      if (!response.ok || data.accessible === false) {
+      const data = await clusterPromise;
+
+      if (!data || data.accessible === false) {
         setIsAccessible(false);
-        setErrorMessage(data.error || 'Failed to query live Kubernetes cluster');
+        setErrorMessage(data?.error || 'Failed to query live Kubernetes cluster');
         setClusterResources([]);
-      } else {
-        setIsAccessible(true);
-        setClusterResources(data.resources || []);
-        setClusterNamespaces(data.namespaces || []);
-        setContextName(data.contextName || activeContext || 'connected-cluster');
+        setLoading(false);
+        return;
       }
+
+      setIsAccessible(true);
+      const resources: K8sResource[] = data.resources || [];
+      setClusterResources(resources);
+      setClusterNamespaces(data.namespaces || []);
+      setContextName(data.contextName || activeContext || 'connected-cluster');
+
+      // Step 3 to 5: Run pure async property hashing and comparison
+      const computedReport = await buildComparisonReportAsync(
+        nodes,
+        resources,
+        activeNsArray,
+        updatedProgress => {
+          setProgress(updatedProgress);
+        }
+      );
+
+      setReport(computedReport);
     } catch (err) {
       setIsAccessible(false);
       setErrorMessage(err instanceof Error ? err.message : 'Network error communicating with cluster');
@@ -130,13 +188,13 @@ export function ManifestClusterCompare({
     } finally {
       setLoading(false);
     }
-  }, [activeContext, effectiveSettings, selectedNamespaces]);
+  }, [activeContext, effectiveSettings, nodes, selectedNamespaces]);
 
   useEffect(() => {
-    void fetchClusterState();
-  }, [fetchClusterState]);
+    void runComparisonPipeline();
+  }, [runComparisonPipeline]);
 
-  // Discover all distinct namespaces across manifests and cluster
+  // Discover all distinct namespaces
   const allAvailableNamespaces = useMemo(() => {
     const set = new Set<string>();
     for (const n of nodes) {
@@ -151,13 +209,10 @@ export function ManifestClusterCompare({
     return Array.from(set).sort();
   }, [nodes, clusterNamespaces, clusterResources]);
 
-  // Namespace selection toggle
   const toggleNamespace = (ns: string) => {
     setSelectedNamespaces(prev => {
       const next = new Set(prev);
-      if (ns === 'all') {
-        return new Set(['all']);
-      }
+      if (ns === 'all') return new Set(['all']);
       next.delete('all');
       if (next.has(ns)) {
         next.delete(ns);
@@ -173,14 +228,18 @@ export function ManifestClusterCompare({
     setSelectedNamespaces(new Set([ns]));
   };
 
-  // Build the comparison report
-  const report: ComparisonReport = useMemo(() => {
-    const activeNsArray = selectedNamespaces.has('all') ? undefined : Array.from(selectedNamespaces);
-    return buildComparisonReport(nodes, clusterResources, activeNsArray);
-  }, [nodes, clusterResources, selectedNamespaces]);
+  const toggleExpand = (id: string) => {
+    setExpandedDiffs(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
-  // Filter report items by status and query
+  // Filter report items
   const filteredGroups: KindGroupComparison[] = useMemo(() => {
+    if (!report) return [];
     const query = searchQuery.trim().toLowerCase();
     return report.byKind
       .map(group => {
@@ -201,15 +260,6 @@ export function ManifestClusterCompare({
       })
       .filter(group => group.items.length > 0);
   }, [report, statusFilter, searchQuery]);
-
-  const toggleExpand = (id: string) => {
-    setExpandedDiffs(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   // ── Prerequisite Screen 1: No Manifest Files ──────────────────────────────────
   if (!hasManifests) {
@@ -236,14 +286,59 @@ export function ManifestClusterCompare({
     );
   }
 
-  // ── Loading Screen: Animated Branded Logo ────────────────────────────────────
+  // ── Loading Screen: Multi-Step Async Progress Card ───────────────────────────
   if (loading) {
     return (
-      <div className="flex h-96 w-full flex-col items-center justify-center space-y-4 rounded-xl border border-border bg-card/60 backdrop-blur-xs">
-        <LoadingIndicator size="lg" label="Comparing cluster state against directory manifests…" className="flex-col gap-3" />
-        <p className="text-xs text-muted-foreground font-mono">
-          Querying {contextName || effectiveSettings.contextName || 'cluster'} live resources
-        </p>
+      <div className="flex min-h-[420px] w-full flex-col items-center justify-center space-y-6 rounded-xl border border-border bg-card/60 p-8 backdrop-blur-xs">
+        <LoadingIndicator size="lg" label="" className="flex-col gap-3" />
+
+        <div className="w-full max-w-md space-y-3 text-center">
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <span>{progress.stepName}</span>
+            <span className="font-mono text-primary font-bold text-sm">{progress.percent}%</span>
+          </div>
+
+          {/* Smooth animated progress bar */}
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-300 ease-out shadow-sm"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+
+          <p className="text-xs text-foreground/90 font-medium">
+            {progress.description}
+          </p>
+
+          {progress.currentItem && (
+            <p className="text-[11px] font-mono text-muted-foreground truncate">
+              {progress.currentItem}
+            </p>
+          )}
+
+          {/* Step badges */}
+          <div className="grid grid-cols-5 gap-1 pt-3">
+            {STEPS_LIST.map(s => {
+              const isDone = progress.step > s.step;
+              const isCurrent = progress.step === s.step;
+              return (
+                <div
+                  key={s.step}
+                  className={`flex flex-col items-center rounded-md border p-1 text-[10px] transition-colors ${
+                    isDone
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : isCurrent
+                      ? 'border-primary/50 bg-primary/10 text-primary font-semibold'
+                      : 'border-border bg-muted/30 text-muted-foreground/60'
+                  }`}
+                >
+                  <span>Step {s.step}</span>
+                  <span className="truncate max-w-[65px]">{s.name}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   }
@@ -258,7 +353,7 @@ export function ManifestClusterCompare({
           </div>
           <CardTitle className="text-lg">Kubernetes Cluster Inaccessible</CardTitle>
           <CardDescription className="max-w-lg mx-auto mt-2 text-foreground/80">
-            Cannot reach Kubernetes API server for context <code className="font-mono text-primary bg-muted px-1.5 py-0.5 rounded text-xs">{contextName || effectiveSettings.contextName || 'default'}</code>.
+            Cannot reach Kubernetes API server for context <code className="font-mono text-primary bg-muted px-1.5 py-0.5 rounded text-xs">{contextName || activeContext || 'default'}</code>.
           </CardDescription>
           {errorMessage && (
             <div className="mx-auto mt-4 max-w-xl rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive-foreground text-left font-mono break-all">
@@ -266,7 +361,7 @@ export function ManifestClusterCompare({
             </div>
           )}
           <div className="mt-6 flex justify-center gap-3">
-            <Button onClick={() => void fetchClusterState()} variant="default" className="gap-2">
+            <Button onClick={() => void runComparisonPipeline()} variant="default" className="gap-2">
               <RotateCw size={14} />
               Retry Connection
             </Button>
@@ -276,12 +371,16 @@ export function ManifestClusterCompare({
     );
   }
 
+  if (!report) {
+    return null;
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Top Controls & Namespace Filter */}
+      {/* Top Controls Bar */}
       <Card className="border-border bg-card shrink-0">
         <CardContent className="p-4 space-y-3">
-          {/* Summary Row */}
+          {/* Row 1: Cluster Context, Summary Badges, View Toggle */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
             <div className="flex items-center gap-2">
               <Server size={16} className="text-primary" />
@@ -297,18 +396,48 @@ export function ManifestClusterCompare({
               </Badge>
             </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void fetchClusterState()}
-              className="h-7 text-xs gap-1.5"
-            >
-              <RotateCw size={12} />
-              Refresh Diff
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Dual View Mode Toggle */}
+              <div className="flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('two-column')}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    viewMode === 'two-column'
+                      ? 'bg-background text-foreground shadow-xs font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Columns3 size={13} />
+                  Two-Column View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('tree')}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    viewMode === 'tree'
+                      ? 'bg-background text-foreground shadow-xs font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <FolderTree size={13} />
+                  Tree View
+                </button>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void runComparisonPipeline()}
+                className="h-7 text-xs gap-1.5"
+              >
+                <RotateCw size={12} />
+                Refresh Diff
+              </Button>
+            </div>
           </div>
 
-          {/* Namespace Filter Pills */}
+          {/* Row 2: Namespace Filter Pills */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <span className="text-xs font-medium text-muted-foreground mr-1 flex items-center gap-1">
               <Filter size={12} />
@@ -346,7 +475,7 @@ export function ManifestClusterCompare({
             })}
           </div>
 
-          {/* Status Filter Chips */}
+          {/* Row 3: Status Filters & Search Bar */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-medium text-muted-foreground mr-1">Status:</span>
@@ -412,24 +541,38 @@ export function ManifestClusterCompare({
               )}
             </div>
 
-            {/* Search Input */}
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Filter by name or file..."
-              className="h-7 w-48 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
-            />
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={onlyDriftedProperties}
+                  onChange={e => setOnlyDriftedProperties(e.target.checked)}
+                  className="rounded border-border"
+                />
+                <span>Only Drifted Props</span>
+              </label>
+
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Filter by name or file..."
+                className="h-7 w-44 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Comparison Sections Grouped by Kind */}
+      {/* Main Content: Two-Column View vs Hierarchical Tree View */}
       {filteredGroups.length === 0 ? (
         <Card className="border-border bg-card p-8 text-center text-sm text-muted-foreground">
           No objects match the current filters.
         </Card>
-      ) : (
+      ) : viewMode === 'two-column' ? (
+        // ─────────────────────────────────────────────────────────────────────────
+        // VIEW 1: Two-Column Diff Mode
+        // ─────────────────────────────────────────────────────────────────────────
         filteredGroups.map(group => {
           const Icon = KIND_ICONS[group.kind] || Box;
           return (
@@ -470,7 +613,7 @@ export function ManifestClusterCompare({
                 </div>
               </div>
 
-              {/* Items under this Kind */}
+              {/* Items List */}
               <div className="grid gap-3">
                 {group.items.map(item => {
                   const isExpanded = expandedDiffs.has(item.id);
@@ -489,7 +632,7 @@ export function ManifestClusterCompare({
                       }`}
                     >
                       <CardContent className="p-3.5 space-y-2.5">
-                        {/* Header Row: Object Name, Status Badge, File Chip */}
+                        {/* Header Row */}
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-xs text-foreground">{item.name}</span>
@@ -499,7 +642,7 @@ export function ManifestClusterCompare({
                             </StatusBadge>
                           </div>
 
-                          {/* Source File Badge with direct VS Code Jump */}
+                          {/* Source File Badge */}
                           {item.fileName ? (
                             <button
                               type="button"
@@ -519,7 +662,7 @@ export function ManifestClusterCompare({
                           )}
                         </div>
 
-                        {/* Drift Highlights / Summary */}
+                        {/* Drift Highlights */}
                         {item.diffSummary.length > 0 && (
                           <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-xs text-warning-foreground space-y-1">
                             {item.diffSummary.map((sum, i) => (
@@ -531,7 +674,7 @@ export function ManifestClusterCompare({
                           </div>
                         )}
 
-                        {/* Two-Column Comparison Grid: Manifest File vs Actual Cluster */}
+                        {/* Two Columns */}
                         <div className="grid gap-3 sm:grid-cols-2">
                           {/* Column 1: Manifest File State */}
                           <div className="rounded-lg border border-border bg-background p-3 space-y-1.5">
@@ -645,8 +788,8 @@ export function ManifestClusterCompare({
                           </div>
                         </div>
 
-                        {/* Granular Field Diff Table & Toggle */}
-                        {item.fields.length > 0 && (
+                        {/* Collapsible Property Tree Drawer */}
+                        {item.propertyTree.length > 0 && (
                           <div>
                             <button
                               type="button"
@@ -654,37 +797,15 @@ export function ManifestClusterCompare({
                               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-medium pt-1 transition-colors"
                             >
                               {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                              <span>{isExpanded ? 'Hide' : 'Show'} detailed property diff ({item.fields.length} properties)</span>
+                              <span>{isExpanded ? 'Hide' : 'Show'} detailed Property Tree & Hashes</span>
                             </button>
 
                             {isExpanded && (
-                              <div className="mt-2 overflow-x-auto rounded-lg border border-border">
-                                <table className="w-full text-left text-xs">
-                                  <thead className="bg-muted/50 text-[10px] uppercase font-semibold text-muted-foreground border-b border-border">
-                                    <tr>
-                                      <th className="p-2">Property</th>
-                                      <th className="p-2">Manifest File Value</th>
-                                      <th className="p-2">Live Cluster Value</th>
-                                      <th className="p-2">Status</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-border font-mono text-[11px]">
-                                    {item.fields.map((f, i) => (
-                                      <tr key={i} className={f.isDifferent ? 'bg-warning/10' : ''}>
-                                        <td className="p-2 font-sans font-medium text-foreground">{f.label}</td>
-                                        <td className="p-2 text-muted-foreground break-all">{f.manifestValue}</td>
-                                        <td className="p-2 text-foreground break-all">{f.clusterValue}</td>
-                                        <td className="p-2">
-                                          {f.isDifferent ? (
-                                            <span className="text-warning-foreground font-sans font-semibold text-[10px]">Outdated</span>
-                                          ) : (
-                                            <span className="text-emerald-600 dark:text-emerald-400 font-sans text-[10px]">Match</span>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                              <div className="mt-2 rounded-lg border border-border bg-background p-3">
+                                <PropertyTreeViewer
+                                  nodes={item.propertyTree}
+                                  onlyDrifted={onlyDriftedProperties}
+                                />
                               </div>
                             )}
                           </div>
@@ -697,6 +818,223 @@ export function ManifestClusterCompare({
             </div>
           );
         })
+      ) : (
+        // ─────────────────────────────────────────────────────────────────────────
+        // VIEW 2: Hierarchical Tree Diff Mode
+        // ─────────────────────────────────────────────────────────────────────────
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm">Hierarchical Comparison Tree</CardTitle>
+                <CardDescription className="text-xs">
+                  Full object and property hierarchy with canonical hashes and drift status
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="text-xs">
+                {report.totalCompared} Objects Analyzed
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 space-y-4">
+            {filteredGroups.map(group => {
+              const Icon = KIND_ICONS[group.kind] || Box;
+              return (
+                <div key={group.kind} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <Icon size={14} className="text-primary" />
+                    <span>{group.kind}</span>
+                    <Badge variant="outline" className="text-[10px]">
+                      {group.items.length}
+                    </Badge>
+                  </div>
+
+                  <div className="pl-4 space-y-2 border-l border-border/80 ml-2">
+                    {group.items.map(item => (
+                      <div key={item.id} className="rounded-md border border-border bg-background p-2.5 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-xs text-foreground">{item.name}</span>
+                            <span className="font-mono text-[10px] text-muted-foreground">({item.namespace})</span>
+                            <StatusBadge tone={STATUS_TONES[item.status]}>
+                              {item.statusLabel}
+                            </StatusBadge>
+                          </div>
+
+                          {item.fileName && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenInEditor?.(item.fileName!, item.sourceLine, item.sourceColumn)}
+                              className="text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                            >
+                              <FileCode2 size={11} />
+                              <span>{item.fileName}:{item.sourceLine}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Property Subtree */}
+                        <PropertyTreeViewer
+                          nodes={item.propertyTree}
+                          onlyDrifted={onlyDriftedProperties}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Interactive Property Tree Viewer Component
+// ─────────────────────────────────────────────────────────────────────────────
+interface PropertyTreeViewerProps {
+  nodes: PropertyTreeNode[];
+  onlyDrifted?: boolean;
+}
+
+function PropertyTreeViewer({ nodes, onlyDrifted = false }: PropertyTreeViewerProps) {
+  const displayNodes = useMemo(() => {
+    if (!onlyDrifted) return nodes;
+
+    function filterNode(node: PropertyTreeNode): PropertyTreeNode | null {
+      if (node.isDifferent) return node;
+      if (node.children && node.children.length > 0) {
+        const filteredChildren = node.children.map(filterNode).filter((c): c is PropertyTreeNode => c !== null);
+        if (filteredChildren.length > 0) {
+          return {
+            ...node,
+            children: filteredChildren,
+          };
+        }
+      }
+      return null;
+    }
+
+    return nodes.map(filterNode).filter((n): n is PropertyTreeNode => n !== null);
+  }, [nodes, onlyDrifted]);
+
+  if (displayNodes.length === 0) {
+    return (
+      <div className="text-[11px] text-muted-foreground italic py-1">
+        All properties match declared manifest files.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1 font-mono text-xs">
+      {displayNodes.map(node => (
+        <PropertyTreeNodeItem key={node.path} node={node} onlyDrifted={onlyDrifted} />
+      ))}
+    </div>
+  );
+}
+
+interface PropertyTreeNodeItemProps {
+  node: PropertyTreeNode;
+  onlyDrifted?: boolean;
+}
+
+function PropertyTreeNodeItem({ node, onlyDrifted }: PropertyTreeNodeItemProps) {
+  const [isOpen, setIsOpen] = useState<boolean>(node.isDifferent || !onlyDrifted);
+  const hasChildren = node.children && node.children.length > 0;
+
+  return (
+    <div className="space-y-1">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 rounded px-2 py-1 transition-colors ${
+          node.isDifferent
+            ? 'bg-warning/15 text-warning-foreground font-medium'
+            : 'hover:bg-muted/40 text-foreground'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => setIsOpen(!isOpen)}
+              className="p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+          ) : (
+            <span className="w-4 inline-block text-center text-muted-foreground">•</span>
+          )}
+
+          <span className="font-semibold text-xs truncate">{node.label || node.key}</span>
+
+          {node.type === 'object' && (
+            <span className="text-[10px] text-muted-foreground">{'{}'}</span>
+          )}
+          {node.type === 'array' && (
+            <span className="text-[10px] text-muted-foreground">{'[]'}</span>
+          )}
+        </div>
+
+        {/* Values and Hashes */}
+        <div className="flex items-center gap-2 text-[11px]">
+          {node.manifestHash && (
+            <span
+              className="flex items-center gap-1 font-mono text-[10px] bg-muted px-1 py-0.5 rounded text-muted-foreground"
+              title={`Manifest Property Hash: ${node.manifestHash}`}
+            >
+              <Hash size={10} />
+              <span>{node.manifestHash}</span>
+            </span>
+          )}
+
+          {node.clusterHash && node.clusterHash !== node.manifestHash && (
+            <span
+              className="flex items-center gap-1 font-mono text-[10px] bg-warning/20 text-warning-foreground px-1 py-0.5 rounded"
+              title={`Cluster Property Hash: ${node.clusterHash}`}
+            >
+              <Hash size={10} />
+              <span>{node.clusterHash}</span>
+            </span>
+          )}
+
+          {node.isDifferent ? (
+            <span className="rounded bg-warning/25 px-1.5 py-0.5 text-[10px] font-bold text-warning-foreground">
+              Drifted
+            </span>
+          ) : (
+            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+              Match
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Leaf Values Comparison */}
+      {!hasChildren && (node.manifestValue !== undefined || node.clusterValue !== undefined) && (
+        <div className="pl-6 text-[11px] grid grid-cols-1 sm:grid-cols-2 gap-2 pb-1">
+          <div className="rounded bg-muted/40 p-1.5">
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground block font-sans">Manifest:</span>
+            <span className="text-foreground break-all">{node.manifestValue ?? '(unset)'}</span>
+          </div>
+          <div className={`rounded p-1.5 ${node.isDifferent ? 'bg-warning/10 border border-warning/30' : 'bg-muted/40'}`}>
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground block font-sans">Cluster:</span>
+            <span className={node.isDifferent ? 'text-warning-foreground font-semibold break-all' : 'text-foreground break-all'}>
+              {node.clusterValue ?? '(unset)'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Recursive Children */}
+      {hasChildren && isOpen && (
+        <div className="pl-4 border-l border-border/80 ml-2.5 space-y-1">
+          {node.children!.map(child => (
+            <PropertyTreeNodeItem key={child.path} node={child} onlyDrifted={onlyDrifted} />
+          ))}
+        </div>
       )}
     </div>
   );
