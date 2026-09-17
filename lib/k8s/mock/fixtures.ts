@@ -255,7 +255,7 @@ export const MOCK_RESOURCES: K8sResource[] = [
         { name: 'MONGO_URI', value: 'mongodb://mongo.database.svc.cluster.local:27017/orders' },
         { name: 'KAFKA_BROKERS', value: 'kafka-0.kafka-headless.database.svc.cluster.local:9092' },
         { name: 'USER_SERVICE_URL', value: 'http://user-service.default.svc.cluster.local:3000' },
-        { name: 'NOTIFICATION_URL', value: 'https://hooks.slack.com/services/T00000/B00000/XXXX' },
+        { name: 'NOTIFICATION_URL', value: 'https://notifications.internal/webhook/alerts' },
       ],
       volumeMounts: [],
     }],
@@ -585,6 +585,167 @@ export const MOCK_RESOURCES: K8sResource[] = [
     labels: {}, annotations: {}, discoveredAt: ts(),
     selector: { app: 'postgres' },
   },
+
+  // ─── klystr-bookstore: telemetry demo / compare fixtures ────
+  { uid: 'ns-klystr-bookstore', kind: 'Namespace', apiVersion: 'v1', name: 'klystr-bookstore', namespace: null, labels: { 'app.kubernetes.io/name': 'klystr-bookstore', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', discoveredAt: ts() },
+  {
+    uid: 'cm-traffic-control', kind: 'ConfigMap', apiVersion: 'v1', name: 'traffic-control', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'traffic-control', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: {
+        name: 'traffic-control',
+        namespace: 'klystr-bookstore',
+        labels: { 'app.kubernetes.io/name': 'traffic-control', telemetry: 'klystr-bookstore' },
+      },
+      data: {
+        'config.json': '{\n  "state": "RUNNING",\n  "base_rps": 5.0,\n  "multiplier": 1.0\n}\n',
+      },
+    },
+  },
+  {
+    uid: 'cm-bookstore-schema', kind: 'ConfigMap', apiVersion: 'v1', name: 'bookstore-schema', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'bookstore-schema', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: { name: 'bookstore-schema', namespace: 'klystr-bookstore' },
+      data: {
+        'schema.sql': '-- Bookstore Database Schema & Seed Data\nCREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY);\n',
+      },
+    },
+  },
+  {
+    uid: 'cm-frontend-config', kind: 'ConfigMap', apiVersion: 'v1', name: 'frontend-config', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'frontend-config', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: { name: 'frontend-config', namespace: 'klystr-bookstore' },
+      data: {
+        'config.js': 'window.APP_CONFIG = { API_BASE: "/api", ENVIRONMENT: "production" };',
+      },
+    },
+  },
+  {
+    uid: 'svc-bookstore-db', kind: 'Service', apiVersion: 'v1', name: 'bookstore-db', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'bookstore-db', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', serviceType: 'ClusterIP',
+    ports: [{ port: 5432, protocol: 'TCP', targetPort: 5432, name: 'postgres' }], selector: { 'app.kubernetes.io/name': 'bookstore-db' }, discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1', kind: 'Service', metadata: { name: 'bookstore-db', namespace: 'klystr-bookstore' },
+      spec: { type: 'ClusterIP', ports: [{ port: 5432, protocol: 'TCP' }] },
+    },
+  },
+  {
+    uid: 'sts-bookstore-db', kind: 'StatefulSet', apiVersion: 'apps/v1', name: 'bookstore-db', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'bookstore-db', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Ready', discoveredAt: ts(),
+    containers: [{
+      name: 'postgres',
+      image: 'postgres:16-alpine',
+      ports: [{ port: 5432, protocol: 'TCP', name: 'postgres' }],
+      envVars: [
+        { name: 'POSTGRES_DB', value: 'bookstore' },
+        { name: 'POSTGRES_USER', value: 'postgres' },
+        { name: 'POSTGRES_PASSWORD', value: 'postgres' },
+        { name: 'PGDATA', value: '/var/lib/postgresql/data/pgdata' },
+      ],
+      volumeMounts: [],
+    }],
+    raw: {
+      apiVersion: 'apps/v1', kind: 'StatefulSet', metadata: { name: 'bookstore-db', namespace: 'klystr-bookstore' },
+      spec: {
+        replicas: 1,
+        template: {
+          spec: {
+            containers: [{
+              name: 'postgres',
+              image: 'postgres:16-alpine',
+              env: [
+                { name: 'POSTGRES_DB', value: 'bookstore' },
+                { name: 'POSTGRES_USER', value: 'postgres' },
+                { name: 'POSTGRES_PASSWORD', value: 'postgres' },
+                { name: 'PGDATA', value: '/var/lib/postgresql/data/pgdata' },
+              ],
+            }],
+          },
+        },
+      },
+    },
+  },
+  {
+    uid: 'svc-redis-session', kind: 'Service', apiVersion: 'v1', name: 'redis-session', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'redis-session', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', serviceType: 'ClusterIP',
+    ports: [{ port: 6379, protocol: 'TCP', targetPort: 6379, name: 'redis' }], selector: { 'app.kubernetes.io/name': 'redis-session' }, discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1', kind: 'Service', metadata: { name: 'redis-session', namespace: 'klystr-bookstore' },
+      spec: { type: 'ClusterIP', ports: [{ port: 6379, protocol: 'TCP' }] },
+    },
+  },
+  {
+    uid: 'deploy-redis-session', kind: 'Deployment', apiVersion: 'apps/v1', name: 'redis-session', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'redis-session', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Available', discoveredAt: ts(),
+    containers: [{ name: 'redis', image: 'redis:7.2-alpine', ports: [{ port: 6379, protocol: 'TCP', name: 'redis' }], envVars: [], volumeMounts: [] }],
+    raw: {
+      apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name: 'redis-session', namespace: 'klystr-bookstore' },
+      spec: { replicas: 1, template: { spec: { containers: [{ name: 'redis', image: 'redis:7.2-alpine' }] } } },
+    },
+  },
+  {
+    uid: 'svc-inventory-service', kind: 'Service', apiVersion: 'v1', name: 'inventory-service', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'inventory-service', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', serviceType: 'ClusterIP',
+    ports: [{ port: 8080, protocol: 'TCP', targetPort: 8080, name: 'http' }], selector: { 'app.kubernetes.io/name': 'inventory-service' }, discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1', kind: 'Service', metadata: { name: 'inventory-service', namespace: 'klystr-bookstore' },
+      spec: { type: 'ClusterIP', ports: [{ port: 8080, protocol: 'TCP' }] },
+    },
+  },
+  {
+    uid: 'deploy-inventory-service', kind: 'Deployment', apiVersion: 'apps/v1', name: 'inventory-service', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'inventory-service', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Available', discoveredAt: ts(),
+    containers: [{ name: 'inventory-service', image: 'python:3.11-slim', ports: [{ port: 8080, protocol: 'TCP', name: 'http' }], envVars: [], volumeMounts: [] }],
+    raw: {
+      apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name: 'inventory-service', namespace: 'klystr-bookstore' },
+      spec: { replicas: 1, template: { spec: { containers: [{ name: 'inventory-service', image: 'python:3.11-slim' }] } } },
+    },
+  },
+  {
+    uid: 'svc-order-processor', kind: 'Service', apiVersion: 'v1', name: 'order-processor', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'order-processor', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', serviceType: 'ClusterIP',
+    ports: [{ port: 8080, protocol: 'TCP', targetPort: 8080, name: 'http' }], selector: { 'app.kubernetes.io/name': 'order-processor' }, discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1', kind: 'Service', metadata: { name: 'order-processor', namespace: 'klystr-bookstore' },
+      spec: { type: 'ClusterIP', ports: [{ port: 8080, protocol: 'TCP' }] },
+    },
+  },
+  {
+    uid: 'deploy-order-processor', kind: 'Deployment', apiVersion: 'apps/v1', name: 'order-processor', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'order-processor', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Available', discoveredAt: ts(),
+    containers: [{ name: 'order-processor', image: 'python:3.11-slim', ports: [{ port: 8080, protocol: 'TCP', name: 'http' }], envVars: [], volumeMounts: [] }],
+    raw: {
+      apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name: 'order-processor', namespace: 'klystr-bookstore' },
+      spec: { replicas: 1, template: { spec: { containers: [{ name: 'order-processor', image: 'python:3.11-slim' }] } } },
+    },
+  },
+  {
+    uid: 'svc-bookstore-frontend', kind: 'Service', apiVersion: 'v1', name: 'bookstore-frontend', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'bookstore-frontend', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Active', serviceType: 'ClusterIP',
+    ports: [{ port: 80, protocol: 'TCP', targetPort: 80, name: 'http' }], selector: { 'app.kubernetes.io/name': 'bookstore-frontend' }, discoveredAt: ts(),
+    raw: {
+      apiVersion: 'v1', kind: 'Service', metadata: { name: 'bookstore-frontend', namespace: 'klystr-bookstore' },
+      spec: { type: 'ClusterIP', ports: [{ port: 80, protocol: 'TCP' }] },
+    },
+  },
+  {
+    uid: 'deploy-bookstore-frontend', kind: 'Deployment', apiVersion: 'apps/v1', name: 'bookstore-frontend', namespace: 'klystr-bookstore',
+    labels: { 'app.kubernetes.io/name': 'bookstore-frontend', telemetry: 'klystr-bookstore' }, annotations: {}, status: 'Available', discoveredAt: ts(),
+    containers: [{ name: 'bookstore-frontend', image: 'nginx:1.25-alpine', ports: [{ port: 80, protocol: 'TCP', name: 'http' }], envVars: [], volumeMounts: [] }],
+    raw: {
+      apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name: 'bookstore-frontend', namespace: 'klystr-bookstore' },
+      spec: { replicas: 1, template: { spec: { containers: [{ name: 'bookstore-frontend', image: 'nginx:1.25-alpine' }] } } },
+    },
+  },
+
   ...EXPANDED_PLATFORM_MOCK_RESOURCES,
 ];
 

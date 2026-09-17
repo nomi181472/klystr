@@ -273,6 +273,135 @@ function extractServiceType(raw?: Record<string, unknown>, resource?: K8sResourc
 }
 
 /**
+ * Tries to parse a string as JSON object or array. Returns null if invalid or not object/array.
+ */
+export function tryParseJson(val: unknown): Record<string, unknown> | unknown[] | null {
+  if (typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  } catch {
+    // not valid JSON
+  }
+  return null;
+}
+
+/**
+ * Builds nested property tree nodes from structured JSON objects or arrays.
+ */
+export function buildStructuredJsonTree(
+  basePath: string,
+  mVal: unknown,
+  cVal: unknown
+): PropertyTreeNode[] {
+  const isMObj = mVal !== null && typeof mVal === 'object';
+  const isCObj = cVal !== null && typeof cVal === 'object';
+
+  if (!isMObj && !isCObj) {
+    return [];
+  }
+
+  const mIsArr = Array.isArray(mVal);
+  const cIsArr = Array.isArray(cVal);
+
+  const keysSet = new Set<string>();
+  if (isMObj) {
+    if (mIsArr) {
+      (mVal as unknown[]).forEach((_, idx) => keysSet.add(String(idx)));
+    } else {
+      Object.keys(mVal as Record<string, unknown>).forEach(k => keysSet.add(k));
+    }
+  }
+  if (isCObj) {
+    if (cIsArr) {
+      (cVal as unknown[]).forEach((_, idx) => keysSet.add(String(idx)));
+    } else {
+      Object.keys(cVal as Record<string, unknown>).forEach(k => keysSet.add(k));
+    }
+  }
+
+  const keys = Array.from(keysSet).sort((a, b) => {
+    const numA = Number(a);
+    const numB = Number(b);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.localeCompare(b);
+  });
+
+  const nodes: PropertyTreeNode[] = [];
+
+  for (const k of keys) {
+    const childPath = `${basePath}.${k}`;
+    const mChild = isMObj ? (mVal as Record<string, unknown>)[k] : undefined;
+    const cChild = isCObj ? (cVal as Record<string, unknown>)[k] : undefined;
+
+    const inManifest = mChild !== undefined;
+    const inCluster = cChild !== undefined;
+
+    const mChildIsObj = mChild !== null && typeof mChild === 'object';
+    const cChildIsObj = cChild !== null && typeof cChild === 'object';
+
+    if (mChildIsObj || cChildIsObj) {
+      const subChildren = buildStructuredJsonTree(childPath, mChild, cChild);
+      const isDiff = !inManifest || !inCluster || subChildren.some(c => c.isDifferent);
+      let status: DiffStatus = 'in-sync';
+      if (inManifest && !inCluster) status = 'missing-in-cluster';
+      else if (!inManifest && inCluster) status = 'cluster-only';
+      else if (isDiff) status = 'out-of-sync';
+
+      nodes.push({
+        key: k,
+        path: childPath,
+        type: Array.isArray(mChild ?? cChild) ? 'array' : 'object',
+        label: k,
+        manifestHash: computePropertyHash(mChild),
+        clusterHash: computePropertyHash(cChild),
+        status,
+        isDifferent: isDiff,
+        children: subChildren,
+      });
+    } else {
+      const mStr = mChild !== undefined ? String(mChild) : undefined;
+      const cStr = cChild !== undefined ? String(cChild) : undefined;
+
+      let status: DiffStatus = 'in-sync';
+      let isDifferent = false;
+
+      if (inManifest && !inCluster) {
+        status = 'missing-in-cluster';
+        isDifferent = true;
+      } else if (!inManifest && inCluster) {
+        status = 'cluster-only';
+        isDifferent = true;
+      } else if (canonicalJsonStringify(mChild) !== canonicalJsonStringify(cChild)) {
+        status = 'out-of-sync';
+        isDifferent = true;
+      }
+
+      nodes.push({
+        key: k,
+        path: childPath,
+        type: 'primitive',
+        label: k,
+        manifestValue: mStr,
+        clusterValue: cStr,
+        manifestHash: computePropertyHash(mChild),
+        clusterHash: computePropertyHash(cChild),
+        status,
+        isDifferent,
+      });
+    }
+  }
+
+  return nodes;
+}
+
+/**
  * Builds a hierarchical PropertyTreeNode tree for a Kubernetes object comparison.
  * Uses Merkle-style subtree hashing where parent branches hash their children.
  */
@@ -328,18 +457,44 @@ export function buildPropertyTree(
         isDifferent = true;
       }
 
-      dataChildren.push({
-        key: k,
-        path: `data.${k}`,
-        type: 'primitive',
-        label: `Key: ${k}`,
-        manifestValue: mVal !== undefined ? (mVal.length > 300 ? mVal.slice(0, 300) + '…' : mVal) : undefined,
-        clusterValue: cVal !== undefined ? (cVal.length > 300 ? cVal.slice(0, 300) + '…' : cVal) : undefined,
-        manifestHash: mHash,
-        clusterHash: cHash,
-        status,
-        isDifferent,
-      });
+      const mJson = tryParseJson(mVal);
+      const cJson = tryParseJson(cVal);
+
+      if (mJson || cJson) {
+        const jsonChildren = buildStructuredJsonTree(`data.${k}`, mJson, cJson);
+        const jsonDiff = !inManifest || !inCluster || jsonChildren.some(c => c.isDifferent);
+        let nodeStatus: DiffStatus = 'in-sync';
+        if (inManifest && !inCluster) nodeStatus = 'missing-in-cluster';
+        else if (!inManifest && inCluster) nodeStatus = 'cluster-only';
+        else if (jsonDiff) nodeStatus = 'out-of-sync';
+
+        dataChildren.push({
+          key: k,
+          path: `data.${k}`,
+          type: 'object',
+          label: `Key: ${k} (JSON)`,
+          manifestValue: mVal !== undefined ? (mVal.length > 200 ? mVal.slice(0, 200) + '…' : mVal) : undefined,
+          clusterValue: cVal !== undefined ? (cVal.length > 200 ? cVal.slice(0, 200) + '…' : cVal) : undefined,
+          manifestHash: mHash,
+          clusterHash: cHash,
+          status: nodeStatus,
+          isDifferent: jsonDiff,
+          children: jsonChildren,
+        });
+      } else {
+        dataChildren.push({
+          key: k,
+          path: `data.${k}`,
+          type: 'primitive',
+          label: `Key: ${k}`,
+          manifestValue: mVal !== undefined ? (mVal.length > 300 ? mVal.slice(0, 300) + '…' : mVal) : undefined,
+          clusterValue: cVal !== undefined ? (cVal.length > 300 ? cVal.slice(0, 300) + '…' : cVal) : undefined,
+          manifestHash: mHash,
+          clusterHash: cHash,
+          status,
+          isDifferent,
+        });
+      }
     }
 
     const dataDiff = dataChildren.some(c => c.isDifferent);
@@ -576,8 +731,8 @@ export function compareObject(
 
   if (manifestNode && !clusterResource) {
     status = 'missing-in-cluster';
-    statusLabel = 'Missing in Cluster';
-    diffSummary.push('Declared in manifest file, but not found in active cluster.');
+    statusLabel = 'Needs Deployment';
+    diffSummary.push('Declared in manifest file, but missing in cluster (needs to be deployed).');
   } else if (!manifestNode && clusterResource) {
     status = 'cluster-only';
     statusLabel = 'Cluster Only';
@@ -598,7 +753,7 @@ export function compareObject(
         isDifferent: diff,
       });
       if (diff) {
-        diffSummary.push(`Image drift: cluster running "${clusterImgStr || 'none'}" vs declared "${manifestImgStr || 'none'}"`);
+        diffSummary.push(`Image drift: cluster running "${clusterImgStr || 'none'}" vs declared "${manifestImgStr || 'none'}" (needs to be redeployed)`);
       }
     }
 
@@ -615,24 +770,26 @@ export function compareObject(
         isDifferent: diff,
       });
       if (diff) {
-        diffSummary.push(`Replica drift: cluster has ${clusterReplicas} vs declared ${manifestReplicas}`);
+        diffSummary.push(`Replica drift: cluster has ${clusterReplicas} vs declared ${manifestReplicas} (needs to be redeployed)`);
       }
     }
 
     // 3. Service type
     if (manifestServiceType || clusterServiceType) {
-      const diff = manifestServiceType !== clusterServiceType;
+      const normManifestType = manifestServiceType || 'ClusterIP';
+      const normClusterType = clusterServiceType || 'ClusterIP';
+      const diff = normManifestType !== normClusterType;
       fields.push({
         path: 'spec.type',
         label: 'Service Type',
-        manifestValue: manifestServiceType || 'ClusterIP',
-        clusterValue: clusterServiceType || 'ClusterIP',
-        manifestHash: computePropertyHash(manifestServiceType),
-        clusterHash: computePropertyHash(clusterServiceType),
+        manifestValue: normManifestType,
+        clusterValue: normClusterType,
+        manifestHash: computePropertyHash(normManifestType),
+        clusterHash: computePropertyHash(normClusterType),
         isDifferent: diff,
       });
       if (diff) {
-        diffSummary.push(`Service type drift: cluster is ${clusterServiceType || 'ClusterIP'} vs declared ${manifestServiceType || 'ClusterIP'}`);
+        diffSummary.push(`Service type drift: cluster is ${normClusterType} vs declared ${normManifestType} (needs to be redeployed)`);
       }
     }
 
@@ -655,22 +812,109 @@ export function compareObject(
         const isDiff = valM !== valC;
         if (isDiff) {
           keyOrValueDiffCount++;
-          fields.push({
-            path: `data.${k}`,
-            label: `Key: ${k}`,
-            manifestValue: valM !== undefined ? (valM.length > 80 ? valM.slice(0, 80) + '…' : valM) : '(missing)',
-            clusterValue: valC !== undefined ? (valC.length > 80 ? valC.slice(0, 80) + '…' : valC) : '(missing)',
-            manifestHash: computePropertyHash(valM),
-            clusterHash: computePropertyHash(valC),
-            isDifferent: true,
-          });
+
+          const mJson = tryParseJson(valM);
+          const cJson = tryParseJson(valC);
+
+          if (mJson || cJson) {
+            const jsonTree = buildStructuredJsonTree(`data.${k}`, mJson, cJson);
+            let nestedLeafDiffCount = 0;
+            const extractDriftedLeaves = (treeNodes: PropertyTreeNode[]) => {
+              for (const n of treeNodes) {
+                if (n.children && n.children.length > 0) {
+                  extractDriftedLeaves(n.children);
+                } else if (n.isDifferent) {
+                  nestedLeafDiffCount++;
+                  fields.push({
+                    path: n.path,
+                    label: `${k} -> ${n.label || n.key}`,
+                    manifestValue: n.manifestValue ?? '(missing)',
+                    clusterValue: n.clusterValue ?? '(missing)',
+                    manifestHash: n.manifestHash,
+                    clusterHash: n.clusterHash,
+                    isDifferent: true,
+                  });
+                  if (n.status === 'missing-in-cluster' || n.clusterValue === undefined) {
+                    diffSummary.push(
+                      `Property "${k}.${n.key}" added in file is missing in cluster (needs to be redeployed)`
+                    );
+                  } else {
+                    diffSummary.push(
+                      `Property "${k}.${n.key}" changed in file: cluster has "${n.clusterValue ?? 'missing'}" vs declared "${n.manifestValue ?? 'missing'}" (needs to be redeployed)`
+                    );
+                  }
+                }
+              }
+            };
+            extractDriftedLeaves(jsonTree);
+
+            if (nestedLeafDiffCount === 0) {
+              fields.push({
+                path: `data.${k}`,
+                label: `Key: ${k}`,
+                manifestValue: valM !== undefined ? (valM.length > 80 ? valM.slice(0, 80) + '…' : valM) : '(missing)',
+                clusterValue: valC !== undefined ? (valC.length > 80 ? valC.slice(0, 80) + '…' : valC) : '(missing)',
+                manifestHash: computePropertyHash(valM),
+                clusterHash: computePropertyHash(valC),
+                isDifferent: true,
+              });
+              diffSummary.push(`Key "${k}" drift: cluster value differs from declared manifest (needs to be redeployed)`);
+            }
+          } else {
+            fields.push({
+              path: `data.${k}`,
+              label: `Key: ${k}`,
+              manifestValue: valM !== undefined ? (valM.length > 80 ? valM.slice(0, 80) + '…' : valM) : '(missing)',
+              clusterValue: valC !== undefined ? (valC.length > 80 ? valC.slice(0, 80) + '…' : valC) : '(missing)',
+              manifestHash: computePropertyHash(valM),
+              clusterHash: computePropertyHash(valC),
+              isDifferent: true,
+            });
+            if (valM !== undefined && valC === undefined) {
+              diffSummary.push(`Key "${k}" added in file is missing in cluster (needs to be redeployed)`);
+            } else {
+              diffSummary.push(`Key "${k}" drift: cluster value differs from declared manifest (needs to be redeployed)`);
+            }
+          }
         }
       }
 
-      if (keyOrValueDiffCount > 0) {
-        diffSummary.push(`${keyOrValueDiffCount} data key/value difference${keyOrValueDiffCount === 1 ? '' : 's'} detected`);
+      if (keyOrValueDiffCount > 0 && diffSummary.length === 0) {
+        diffSummary.push(`${keyOrValueDiffCount} data key/value difference${keyOrValueDiffCount === 1 ? '' : 's'} detected (needs to be redeployed)`);
       }
     }
+
+    // 5. Recursively collect all drifted leaf properties from propertyTree into fields and diffSummary
+    const collectDriftedLeaves = (treeNodes: PropertyTreeNode[]) => {
+      for (const node of treeNodes) {
+        if (node.children && node.children.length > 0) {
+          collectDriftedLeaves(node.children);
+        } else if (node.isDifferent) {
+          const alreadyCovered = fields.some(f => f.path === node.path);
+          if (!alreadyCovered) {
+            fields.push({
+              path: node.path,
+              label: node.label || node.key,
+              manifestValue: node.manifestValue ?? '(unset)',
+              clusterValue: node.clusterValue ?? '(unset)',
+              manifestHash: node.manifestHash,
+              clusterHash: node.clusterHash,
+              isDifferent: true,
+            });
+            if (node.status === 'missing-in-cluster' || node.clusterValue === undefined) {
+              diffSummary.push(
+                `Property "${node.label || node.key}" added in file is missing in cluster (needs to be redeployed)`
+              );
+            } else {
+              diffSummary.push(
+                `Property "${node.label || node.key}" changed in file: cluster has "${node.clusterValue ?? 'unset'}" vs declared "${node.manifestValue ?? 'unset'}" (needs to be redeployed)`
+              );
+            }
+          }
+        }
+      }
+    };
+    collectDriftedLeaves(propertyTree);
 
     // Check tree diff for any other property drifts
     const hasTreeDrift = propertyTree.some(root => root.isDifferent);
@@ -678,7 +922,7 @@ export function compareObject(
 
     if (hasFieldDrift || hasTreeDrift) {
       status = 'out-of-sync';
-      statusLabel = 'Out of Sync';
+      statusLabel = 'Needs Redeployment';
     } else {
       status = 'in-sync';
       statusLabel = 'In Sync';
