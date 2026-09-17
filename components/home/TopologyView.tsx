@@ -135,6 +135,16 @@ export function TopologyView() {
     window.history.replaceState(null, '', url);
   }, [filterParamsString]);
 
+  // Listen for targeted reload button trigger
+  useEffect(() => {
+    const handleRefresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ['topology'] });
+      setLastDiscoveredAt(new Date().toISOString());
+    };
+    window.addEventListener('klystr:refresh:topology', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:topology', handleRefresh);
+  }, [queryClient, setLastDiscoveredAt]);
+
   // 1. Fetch Cluster Nodes
   const nodesQuery = useNodesQuery(activeContext, connectionSettings, settingsReady);
 

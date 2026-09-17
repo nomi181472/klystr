@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, FileCode2, FolderOpen, GitFork, Info, Link2, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -140,6 +140,19 @@ export function ManifestGraphWorkspace() {
       setIngesting(false);
     }
   };
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (files.length > 0) {
+        void ingest('files');
+      } else if (manifestUrl.trim()) {
+        void ingest('url');
+      }
+    };
+    window.addEventListener('klystr:refresh:manifests', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:manifests', handleRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, manifestUrl]);
 
   const openMap = (nodeKey?: string) => {
     if (nodeKey) setSelectedKey(nodeKey);

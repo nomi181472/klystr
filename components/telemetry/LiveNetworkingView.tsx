@@ -13,7 +13,8 @@ import {
   type HeatmapConfig,
   DEFAULT_HEATMAP_CONFIG,
 } from '@/lib/telemetry/mock-data';
-import { Check, ChevronDown, Loader2, RotateCcw, Play, Pause, RefreshCw, LayoutGrid, Box, Timer } from 'lucide-react';
+import { Check, ChevronDown, RotateCcw, Play, Pause, RefreshCw, LayoutGrid, Box, Timer } from 'lucide-react';
+import { LoadingIndicator } from '@/components/ui/loading-indicator';
 import { useConnectionStore } from '@/stores/connection-store';
 import { cn } from '@/lib/utils';
 import { InactivityToastStack, type InactivityNotice } from './InactivityToast';
@@ -342,7 +343,7 @@ export function LiveNetworkingView() {
   const [liveEdges, setLiveEdges] = useState<Edge<MetricEdgeData, 'metricEdge'>[]>([]);
   const [edgeStates, setEdgeStates] = useState<Record<string, EdgeMetricsState>>({});
   
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const versionRef = useRef(`${selectedMetric}:${aggregator}`);
 
   const settingsStr = JSON.stringify(settings);
@@ -370,6 +371,14 @@ export function LiveNetworkingView() {
     setPodsRefreshKey(k => k + 1);
     setManualTriggerCount(c => c + 1);
   };
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      reloadNamespaces();
+    };
+    window.addEventListener('klystr:refresh:telemetry', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:telemetry', handleRefresh);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1049,10 +1058,7 @@ export function LiveNetworkingView() {
             >
               <span className="truncate">
                 {loading ? (
-                  <span className="flex items-center gap-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                    Loading...
-                  </span>
+                  <LoadingIndicator size="xs" label="Loading..." />
                 ) : (selectedPods.size === 0 ? 'All Pods' : `${selectedPods.size} selected`)}
               </span>
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1080,9 +1086,8 @@ export function LiveNetworkingView() {
               </div>
               <div className="my-1 h-px bg-border" />
               {loading ? (
-                <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Fetching pods...
+                <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
+                  <LoadingIndicator size="sm" label="Fetching pods…" className="gap-2" />
                 </div>
               ) : Object.keys(groupedPods).length === 0 ? (
                 <div className="p-3 text-center text-xs text-muted-foreground">
@@ -1280,8 +1285,8 @@ export function LiveNetworkingView() {
         {/* Floating Inactivity Toasts */}
         <InactivityToastStack notices={inactivityNotices} onDismiss={dismissNotice} />
         {loading ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Fetching live data...
+          <div className="flex h-full w-full flex-col items-center justify-center space-y-4 bg-background/50 backdrop-blur-xs">
+            <LoadingIndicator size="lg" label="Fetching live data…" className="flex-col gap-3" />
           </div>
         ) : filteredNodes.length > 0 ? (
           <NetworkGraphCanvas

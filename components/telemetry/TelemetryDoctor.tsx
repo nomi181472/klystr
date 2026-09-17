@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useConnectionStore } from '@/stores/connection-store';
-import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Circle, XCircle } from 'lucide-react';
+import { LoadingIndicator } from '@/components/ui/loading-indicator';
 import { Button } from '@/components/ui/button';
 
 export interface DoctorCheck {
@@ -163,7 +164,7 @@ export function TelemetryDoctor({ onComplete }: { onComplete: (nodePort: number)
             <div key={check.id} className="flex flex-col gap-1">
               <div className="flex items-center gap-3">
                 {check.status === 'pending' && <Circle className="h-5 w-5 text-muted-foreground/30" />}
-                {check.status === 'loading' && <Loader2 className="h-5 w-5 text-primary animate-spin" />}
+                {check.status === 'loading' && <LoadingIndicator size="xs" />}
                 {check.status === 'success' && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
                 {check.status === 'error' && <XCircle className="h-5 w-5 text-destructive" />}
                 
@@ -184,10 +185,7 @@ export function TelemetryDoctor({ onComplete }: { onComplete: (nodePort: number)
           <div className="flex justify-center mt-4">
             <Button onClick={exposeNodePort} disabled={exposing}>
               {exposing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Exposing NodePort...
-                </>
+                <LoadingIndicator size="xs" label="Exposing NodePort..." />
               ) : (
                 'Expose Hubble Relay'
               )}
