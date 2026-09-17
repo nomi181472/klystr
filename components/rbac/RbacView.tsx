@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Copy, KeyRound, Plus, RefreshCw, Shield, UserRoundCog } from 'lucide-react';
@@ -60,6 +60,14 @@ export function RbacView({ activeContext, connectionSettings, namespaces }: Prop
     const timer = window.setTimeout(() => { void load(); }, 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void load(namespace);
+    };
+    window.addEventListener('klystr:refresh:rbac', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:rbac', handleRefresh);
+  }, [load, namespace]);
 
   function hasVerb(resourceId: string, verb: RbacVerb) { return editor?.rules.find(rule => rule.resourceId === resourceId)?.verbs.includes(verb) ?? false; }
   function setRules(resourceId: string, verbs: RbacVerb[]) {

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -431,6 +431,14 @@ export function SecurityWorkspace({ activeContext, connectionSettings }: Props) 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
+  }, [load]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void load();
+    };
+    window.addEventListener('klystr:refresh:security', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:security', handleRefresh);
   }, [load]);
 
   const runTests = useCallback(async (testIds: string[], namespace: string) => request({ action: 'test', testIds, namespace }) as unknown as Promise<SecurityTestRun>, [request]);

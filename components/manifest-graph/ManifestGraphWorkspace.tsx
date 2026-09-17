@@ -300,6 +300,23 @@ export function ManifestGraphWorkspace() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (files.length > 0) {
+        void ingest('files');
+      } else if (manifestUrl.trim()) {
+        void ingest('url');
+      } else if (workspaceFiles.length > 0) {
+        void ingest('workspace', workspaceFiles);
+      } else {
+        void ingest('current-directory');
+      }
+    };
+    window.addEventListener('klystr:refresh:manifests', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:manifests', handleRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, manifestUrl, workspaceFiles]);
+
   const openMap = (nodeKey?: string) => {
     if (nodeKey) handleSelectKey(nodeKey);
     handleViewChange('map');

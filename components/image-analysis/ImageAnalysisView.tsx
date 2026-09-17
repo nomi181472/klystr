@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Box, CheckCircle2, Gauge, RefreshCw, Search, Server, ShieldCheck, X } from 'lucide-react';
@@ -101,6 +101,15 @@ export function ImageAnalysisView({ activeContext, connectionSettings }: { activ
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
     // Connection changes must refresh the authoritative server inventory.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContext, connectionSettings]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void refresh();
+    };
+    window.addEventListener('klystr:refresh:images', handleRefresh);
+    return () => window.removeEventListener('klystr:refresh:images', handleRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeContext, connectionSettings]);
 
