@@ -64,6 +64,12 @@
         "title": "Open Manifest Visibility",
         "category": "Klystr",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "klystr.selectKubeconfig",
+        "title": "Select Kubeconfig File...",
+        "category": "Klystr",
+        "icon": "$(folder-opened)"
       }
     ],
     "viewsContainers": {
@@ -89,6 +95,11 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "klystr.selectKubeconfig",
+          "when": "view == klystr.clustersView",
+          "group": "navigation"
+        },
         {
           "command": "klystr.refreshClusters",
           "when": "view == klystr.clustersView",
@@ -134,6 +145,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically scan open workspace for Kubernetes YAML manifests and watch for file changes."
+        },
+        "klystr.kubeconfigPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to custom Kubernetes kubeconfig file (defaults to ~/.kube/config)."
         }
       }
     }

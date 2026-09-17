@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileCode,
   Lightbulb,
   RotateCcw,
   ShieldAlert,
@@ -241,6 +242,20 @@ export function ConnectionErrorCard({
               <span>Switch to MicroK8s Environment & Retry</span>
             </Button>
           )}
+
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={isConnecting}
+          onClick={() => {
+            onUpdateDraftSettings({ environment: 'kubeconfig' });
+          }}
+          className="h-7 text-xs bg-card hover:bg-muted border-primary/40 text-primary gap-1.5"
+        >
+          <FileCode size={12} />
+          <span>Upload or Select Kubeconfig File</span>
+        </Button>
       </div>
 
       {/* Collapsible Technical Details */}

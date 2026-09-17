@@ -53,13 +53,19 @@ function findKubectlCommand(): string | null {
 /**
  * Fetches a single specific Kubernetes object from cluster using kubectl CLI.
  */
-function fetchViaKubectl(kind: string, name: string, namespace?: string | null): Record<string, unknown> | null {
+function fetchViaKubectl(
+  kind: string,
+  name: string,
+  namespace?: string | null,
+  kubeconfigPath?: string
+): Record<string, unknown> | null {
   const kubectl = findKubectlCommand();
   if (!kubectl) return null;
 
   try {
     const nsArg = namespace ? `-n ${namespace}` : '';
-    const cmd = `${kubectl} get ${kind} ${name} ${nsArg} -o json`;
+    const kubeconfigArg = kubeconfigPath ? `--kubeconfig "${kubeconfigPath}"` : '';
+    const cmd = `${kubectl} get ${kind} ${name} ${nsArg} ${kubeconfigArg} -o json`;
     const stdout = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000, encoding: 'utf-8' });
     if (stdout && stdout.trim().startsWith('{')) {
       return JSON.parse(stdout.trim());
@@ -122,7 +128,7 @@ export async function fetchTargetClusterObjects(
     let rawObj: Record<string, unknown> | null = null;
 
     // 1. Try kubectl CLI first if available (handles microk8s, custom auth, and tokens natively)
-    rawObj = fetchViaKubectl(target.kind, target.name, ns);
+    rawObj = fetchViaKubectl(target.kind, target.name, ns, settings?.kubeconfigPath);
 
     if (rawObj) {
       connectionSucceeded = true;

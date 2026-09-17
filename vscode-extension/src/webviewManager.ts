@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { ServerManager } from './serverManager';
 import { WorkspaceManifestScanner } from './workspaceManifestScanner';
 import { ClusterTreeProvider } from './clusterTreeProvider';
@@ -127,9 +128,20 @@ export class WebviewManager {
           });
           if (uris && uris[0]) {
             const filePath = uris[0].fsPath;
+            let fileContent: string | undefined;
+            try {
+              fileContent = fs.readFileSync(filePath, 'utf-8');
+            } catch {
+              // optional read
+            }
+            if (this.clusterProvider) {
+              this.clusterProvider.setKubeconfig(filePath, fileContent);
+            }
             this.sendMessage({
               command: 'kubeconfigFileSelected',
               filePath,
+              fileName: path.basename(filePath),
+              fileContent,
             });
           }
           break;

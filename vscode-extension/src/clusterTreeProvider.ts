@@ -35,17 +35,37 @@ export class ClusterTreeProvider implements vscode.TreeDataProvider<ClusterTreeI
     this._onDidChangeTreeData.event;
 
   private kubeConfig: k8s.KubeConfig;
+  private customKubeconfigPath?: string;
+  private customKubeconfigContent?: string;
 
   constructor() {
     this.kubeConfig = new k8s.KubeConfig();
     this.loadKubeConfig();
   }
 
+  public setKubeconfig(filePath?: string, content?: string): void {
+    this.customKubeconfigPath = filePath;
+    this.customKubeconfigContent = content;
+    this.refresh();
+  }
+
+  public getKubeconfigSource(): string {
+    if (this.customKubeconfigPath) return this.customKubeconfigPath;
+    if (this.customKubeconfigContent) return 'Uploaded kubeconfig';
+    return '~/.kube/config';
+  }
+
   public loadKubeConfig(): void {
     try {
-      this.kubeConfig.loadFromDefault();
+      if (this.customKubeconfigContent) {
+        this.kubeConfig.loadFromString(this.customKubeconfigContent);
+      } else if (this.customKubeconfigPath) {
+        this.kubeConfig.loadFromFile(this.customKubeconfigPath);
+      } else {
+        this.kubeConfig.loadFromDefault();
+      }
     } catch (err) {
-      console.warn('[Klystr] Could not load default kubeconfig:', err);
+      console.warn('[Klystr] Could not load kubeconfig:', err);
     }
   }
 
@@ -146,10 +166,16 @@ export class QuickActionsProvider implements vscode.TreeDataProvider<QuickAction
         'Scan open repository for Kubernetes YAMLs & analyze dependencies'
       ),
       new QuickActionItem(
+        'Select Kubeconfig File...',
+        'klystr.selectKubeconfig',
+        'folder-opened',
+        'Load custom Kubernetes kubeconfig file (.yaml, .yml, .config)'
+      ),
+      new QuickActionItem(
         'Refresh Clusters & Contexts',
         'klystr.refreshClusters',
         'refresh',
-        'Reload ~/.kube/config contexts'
+        'Reload kubeconfig contexts'
       ),
     ]);
   }

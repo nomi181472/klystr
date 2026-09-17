@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTheme } from 'next-themes';
-import { RefreshCw, PanelLeftClose, PanelLeftOpen, AlertTriangle, Settings, Sun, Moon, Timer, Database, Server, X, UploadCloud, FileCode, FolderOpen, Trash2 } from 'lucide-react';
+import { RefreshCw, PanelLeftClose, PanelLeftOpen, AlertTriangle, Settings, Sun, Moon, Timer, Database, Server, X, UploadCloud, FileCode, FolderOpen, Trash2, Globe, CheckCircle2 } from 'lucide-react';
+import { parseKubeconfigMetadata } from '@/lib/k8s/kubeconfig-parser';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -98,15 +99,21 @@ export function Header({
         updateDraftSettings({
           environment: 'kubeconfig',
           kubeconfigPath: event.data.filePath,
-          kubeconfigContent: undefined,
-          kubeconfigFileName: undefined,
+          kubeconfigContent: event.data.fileContent,
+          kubeconfigFileName: event.data.fileName || event.data.filePath.split('/').pop(),
         });
-        setKubeconfigTab('path');
+        setKubeconfigTab(event.data.fileContent ? 'upload' : 'path');
+        setSettingsOpen(true);
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  const parsedKubeconfig = useMemo(() => {
+    if (!draftSettings.kubeconfigContent) return null;
+    return parseKubeconfigMetadata(draftSettings.kubeconfigContent);
+  }, [draftSettings.kubeconfigContent]);
 
   useEffect(() => {
     if (!settingsOpen || draftSettings.mode !== 'live') {
@@ -287,6 +294,23 @@ export function Header({
             </SelectContent>
           </Select>
         )}
+
+        {/* Kubeconfig Quick Indicator & Selector */}
+        <button
+          type="button"
+          onClick={() => openSettings({ environment: 'kubeconfig' })}
+          className="hidden items-center gap-1.5 rounded-lg border border-border bg-muted/40 hover:bg-muted/70 px-2.5 py-1 text-xs font-medium text-foreground transition-colors md:flex group"
+          title="Click to manage, upload, or switch Kubeconfig"
+        >
+          <FileCode size={13} className="text-primary group-hover:scale-110 transition-transform" />
+          <span className="truncate max-w-[130px]">
+            {connectionSettings.kubeconfigFileName
+              ? connectionSettings.kubeconfigFileName
+              : connectionSettings.kubeconfigPath
+              ? connectionSettings.kubeconfigPath.split('/').pop() || 'kubeconfig'
+              : 'Kubeconfig'}
+          </span>
+        </button>
 
         {/* Root data source selector */}
         <Select value={connectionSettings.mode} onValueChange={value => value && void switchSource(value as ConnectionSettings['mode'])} disabled={connecting || inVsCode}>
@@ -600,47 +624,77 @@ export function Header({
                     ) : (
                       <div>
                         {draftSettings.kubeconfigContent ? (
-                          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/60 p-2.5">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-400">
-                                <FileCode size={16} />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="truncate text-xs font-semibold text-foreground" title={draftSettings.kubeconfigFileName}>
-                                    {draftSettings.kubeconfigFileName ?? 'Uploaded kubeconfig'}
-                                  </span>
-                                  <Badge variant="outline" className="h-4 px-1 text-[9px] border-emerald-500/40 text-emerald-400">
-                                    Loaded
-                                  </Badge>
+                          <div className="space-y-2.5 rounded-lg border border-border bg-card/60 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-400">
+                                  <FileCode size={16} />
                                 </div>
-                                <p className="text-[10px] text-muted-foreground mt-0.5">
-                                  {(draftSettings.kubeconfigContent.length / 1024).toFixed(1)} KB · In-memory
-                                </p>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="truncate text-xs font-semibold text-foreground" title={draftSettings.kubeconfigFileName}>
+                                      {draftSettings.kubeconfigFileName ?? 'Uploaded kubeconfig'}
+                                    </span>
+                                    <Badge variant="outline" className="h-4 px-1 text-[9px] border-emerald-500/40 text-emerald-400">
+                                      Loaded
+                                    </Badge>
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    {(draftSettings.kubeconfigContent.length / 1024).toFixed(1)} KB · In-memory
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => fileInputRef.current?.click()}
+                                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                  title="Replace file"
+                                >
+                                  Replace
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleClearUploadedFile}
+                                  className="h-7 size-7 p-0 text-muted-foreground hover:text-destructive"
+                                  title="Remove uploaded file"
+                                >
+                                  <Trash2 size={13} />
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => fileInputRef.current?.click()}
-                                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                title="Replace file"
-                              >
-                                Replace
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleClearUploadedFile}
-                                className="h-7 size-7 p-0 text-muted-foreground hover:text-destructive"
-                                title="Remove uploaded file"
-                              >
-                                <Trash2 size={13} />
-                              </Button>
-                            </div>
+
+                            {/* Parsed Metadata Summary */}
+                            {parsedKubeconfig && parsedKubeconfig.valid && (
+                              <div className="rounded-md border border-border/70 bg-muted/40 p-2.5 text-xs space-y-2">
+                                {parsedKubeconfig.clusters[0]?.server && (
+                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                    <Server size={12} className="text-primary shrink-0" />
+                                    <span className="font-semibold text-foreground">API Server:</span>
+                                    <span className="font-mono text-[11px] text-primary truncate max-w-[280px]">
+                                      {parsedKubeconfig.clusters[0].server}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                  <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-medium">
+                                    {parsedKubeconfig.totalContexts} {parsedKubeconfig.totalContexts === 1 ? 'Context' : 'Contexts'}
+                                  </Badge>
+                                  <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-medium">
+                                    {parsedKubeconfig.totalClusters} {parsedKubeconfig.totalClusters === 1 ? 'Cluster' : 'Clusters'}
+                                  </Badge>
+                                  {parsedKubeconfig.users[0]?.authType && (
+                                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 capitalize text-muted-foreground border-border">
+                                      Auth: {parsedKubeconfig.users[0].authType}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div

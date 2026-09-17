@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { ClusterTreeProvider, QuickActionsProvider } from './clusterTreeProvider';
 import { WorkspaceManifestScanner } from './workspaceManifestScanner';
 import { ServerManager } from './serverManager';
@@ -50,6 +52,39 @@ export async function activate(context: vscode.ExtensionContext) {
       clusterProvider.refresh();
       updateStatusBar(clusterProvider);
       vscode.window.showInformationMessage('Klystr: Clusters & contexts reloaded.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('klystr.selectKubeconfig', async () => {
+      const uris = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        canSelectFiles: true,
+        canSelectFolders: false,
+        openLabel: 'Select Kubeconfig File',
+        filters: {
+          'Kubeconfig / YAML': ['yaml', 'yml', 'config', 'conf'],
+          'All Files': ['*'],
+        },
+      });
+      if (uris && uris[0]) {
+        const filePath = uris[0].fsPath;
+        let fileContent: string | undefined;
+        try {
+          fileContent = fs.readFileSync(filePath, 'utf-8');
+        } catch {
+          // optional read
+        }
+        clusterProvider.setKubeconfig(filePath, fileContent);
+        updateStatusBar(clusterProvider);
+        webviewManager.sendMessage({
+          command: 'kubeconfigFileSelected',
+          filePath,
+          fileName: path.basename(filePath),
+          fileContent,
+        });
+        vscode.window.showInformationMessage(`Klystr: Loaded kubeconfig "${path.basename(filePath)}"`);
+      }
     })
   );
 
