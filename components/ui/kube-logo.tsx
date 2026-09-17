@@ -38,7 +38,7 @@ export function KubeLogo({ size = 'md', className, ariaLabel = 'Klystr' }: KubeL
         className="h-full w-full overflow-visible drop-shadow-sm"
       >
         <defs>
-          <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
+          <filter id={glowId} filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
             <feGaussianBlur stdDeviation="2.5" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
@@ -46,7 +46,7 @@ export function KubeLogo({ size = 'md', className, ariaLabel = 'Klystr' }: KubeL
             </feMerge>
           </filter>
 
-          <filter id={softGlowId} x="-30%" y="-30%" width="160%" height="160%">
+          <filter id={softGlowId} filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
             <feGaussianBlur stdDeviation="5" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
@@ -152,9 +152,9 @@ export function KubeLogo({ size = 'md', className, ariaLabel = 'Klystr' }: KubeL
         {/* K LINES */}
         {/* Upper stem: top node -> center */}
         <line
-          x1="72"
+          x1="71.99"
           y1="58"
-          x2="72"
+          x2="72.01"
           y2="100"
           stroke="var(--logo-fg, #FFFFFF)"
           strokeWidth="6"
@@ -174,9 +174,9 @@ export function KubeLogo({ size = 'md', className, ariaLabel = 'Klystr' }: KubeL
 
         {/* Lower stem: center -> bottom node */}
         <line
-          x1="72"
+          x1="71.99"
           y1="100"
-          x2="72"
+          x2="72.01"
           y2="142"
           stroke="var(--logo-fg, #FFFFFF)"
           strokeWidth="6"

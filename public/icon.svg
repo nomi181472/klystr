@@ -32,7 +32,7 @@
       }
     </style>
 
-    <filter id="glow">
+    <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
       <feGaussianBlur stdDeviation="2" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
@@ -40,7 +40,7 @@
       </feMerge>
     </filter>
 
-    <filter id="softGlow">
+    <filter id="softGlow" filterUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
       <feGaussianBlur stdDeviation="3.5" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
@@ -66,10 +66,10 @@
 
   <!-- ============ COMPLETE K LINES ============ -->
   <!-- Upper stem -->
-  <line class="logo-k-line" x1="72" y1="58" x2="72" y2="100" stroke="var(--logo-fg, #FFFFFF)" stroke-width="7" stroke-linecap="round" filter="url(#glow)"/>
+  <line class="logo-k-line" x1="71.99" y1="58" x2="72.01" y2="100" stroke="var(--logo-fg, #FFFFFF)" stroke-width="7" stroke-linecap="round" filter="url(#glow)"/>
 
   <!-- Lower stem -->
-  <line class="logo-k-line" x1="72" y1="100" x2="72" y2="142" stroke="var(--logo-fg, #FFFFFF)" stroke-width="7" stroke-linecap="round" filter="url(#glow)"/>
+  <line class="logo-k-line" x1="71.99" y1="100" x2="72.01" y2="142" stroke="var(--logo-fg, #FFFFFF)" stroke-width="7" stroke-linecap="round" filter="url(#glow)"/>
 
   <!-- Upper arm -->
   <line class="logo-k-line" x1="72" y1="100" x2="128" y2="58" stroke="var(--logo-fg, #FFFFFF)" stroke-width="6" stroke-linecap="round" filter="url(#glow)"/>
