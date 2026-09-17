@@ -37,6 +37,8 @@ import type { ResourceNode } from '@/lib/manifest-graph/types';
 import type { ConnectionSettings, K8sResource } from '@/lib/types';
 import {
   buildComparisonReportAsync,
+  canonicalJsonStringify,
+  fnv1aHex,
   type CompareProgress,
   type ComparisonReport,
   type DiffStatus,
@@ -109,7 +111,7 @@ export function ManifestClusterCompare({
 
   const nodeSignature = useMemo(() => {
     if (!nodes || nodes.length === 0) return '';
-    return `${nodes.length}:${nodes.map(n => n.key).sort().join(',')}`;
+    return `${nodes.length}:${nodes.map(n => `${n.key}:${fnv1aHex(canonicalJsonStringify(n.raw))}`).sort().join(',')}`;
   }, [nodes]);
 
   const hasCachedReport = Boolean(cachedCompareState && cachedCompareState.signature === nodeSignature);
@@ -794,6 +796,19 @@ export function ManifestClusterCompare({
                                     <span className="font-mono text-xs">{item.manifestSpecSummary.keys.length} keys ({item.manifestSpecSummary.keys.join(', ')})</span>
                                   </div>
                                 )}
+                                {item.fields.some(f => f.isDifferent && f.path.startsWith('data.')) && (
+                                  <div className="pt-1.5 border-t border-border/50">
+                                    <span className="text-muted-foreground text-[10px] uppercase tracking-wider block font-sans font-semibold">Drifted Data:</span>
+                                    <div className="space-y-1 mt-1">
+                                      {item.fields.filter(f => f.isDifferent && f.path.startsWith('data.')).map(f => (
+                                        <div key={f.path} className="font-mono text-[11px] flex items-center justify-between gap-1 bg-muted/40 px-1.5 py-0.5 rounded">
+                                          <span className="text-muted-foreground truncate">{f.label}:</span>
+                                          <span className="text-primary font-semibold truncate">{f.manifestValue}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <p className="text-xs text-muted-foreground italic">Not declared in manifest files</p>
@@ -853,6 +868,19 @@ export function ManifestClusterCompare({
                                   <div>
                                     <span className="text-muted-foreground">Data Keys: </span>
                                     <span className="font-mono text-xs">{item.clusterSpecSummary.keys.length} keys ({item.clusterSpecSummary.keys.join(', ')})</span>
+                                  </div>
+                                )}
+                                {item.fields.some(f => f.isDifferent && f.path.startsWith('data.')) && (
+                                  <div className="pt-1.5 border-t border-border/50">
+                                    <span className="text-muted-foreground text-[10px] uppercase tracking-wider block font-sans font-semibold">Drifted Data:</span>
+                                    <div className="space-y-1 mt-1">
+                                      {item.fields.filter(f => f.isDifferent && f.path.startsWith('data.')).map(f => (
+                                        <div key={f.path} className="font-mono text-[11px] flex items-center justify-between gap-1 bg-warning/15 px-1.5 py-0.5 rounded">
+                                          <span className="text-muted-foreground truncate">{f.label}:</span>
+                                          <span className="text-warning-foreground font-semibold truncate">{f.clusterValue}</span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
                               </div>

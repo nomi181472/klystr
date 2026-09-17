@@ -18,6 +18,7 @@ import { ManifestClusterCompare } from './ManifestClusterCompare';
 import { VirtualObjectList } from './VirtualObjectList';
 import { EmptyState } from '@/components/ui/empty-state';
 import { analyzeManifestGraph, type ManifestInsight } from '@/lib/manifest-graph/insights';
+import { fnv1aHex } from '@/lib/manifest-graph/cluster-diff';
 import type { GraphEdgeRecord, IngestEvent, ResourceNode } from '@/lib/manifest-graph/types';
 
 interface ManifestGraph { sessionId: string; nodes: ResourceNode[]; edges: GraphEdgeRecord[] }
@@ -293,7 +294,7 @@ export function ManifestGraphWorkspace() {
           setWorkspaceFiles(scan.files);
 
           // Avoid re-ingesting and wiping graph if workspace files have not changed
-          const fingerprint = scan.files.map((f: { relativePath: string; content?: string }) => `${f.relativePath}:${f.content?.length ?? 0}`).join('|');
+          const fingerprint = scan.files.map((f: { relativePath: string; content?: string }) => `${f.relativePath}:${fnv1aHex(f.content || '')}`).join('|');
           if (fingerprint === cachedFingerprint && (currentGraphRef.current || cachedWorkspaceGraph)) {
             return;
           }
