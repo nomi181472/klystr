@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as k8s from '@kubernetes/client-node';
 import type { K8sKind } from '@/config/resource-types';
 import type { ConnectionSettings, DiscoveryWarning, K8sResource, ResourcePort, ContainerInfo, EnvVar, VolumeMount, PodMetricsResponse } from '@/lib/types';
@@ -99,6 +99,7 @@ function toResource(kind: K8sKind, object: KubernetesObject): K8sResource {
     ownerReferences: metadata.ownerReferences?.map((owner: any) => ({ kind: owner.kind, name: owner.name, uid: owner.uid })),
     discoveredAt: new Date().toISOString(),
     nodeName: spec.nodeName,
+    raw: object,
   };
   if (containers.length) {
     resource.envVars = envVars(containers);
